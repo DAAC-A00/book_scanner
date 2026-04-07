@@ -7,11 +7,19 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
 } from "react";
-import { useScannerStore } from "@/store/useScannerStore";
+import {
+  SESSION_STORAGE_PREFIX,
+  deleteSessionKey,
+  listSessionStorageKeys,
+  readSessionRaw,
+  useScannerStore,
+  writeSessionRaw,
+} from "@/store/useScannerStore";
 
 const VIEWFINDER_ID = "book-scanner-viewfinder";
 const DIGIT_ONLY = /^\d+$/;
@@ -30,6 +38,20 @@ function randomDigits(): string {
   ).join("");
 }
 
+function formatSessionKeyLabel(key: string): string {
+  const iso = key.slice(SESSION_STORAGE_PREFIX.length);
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return key;
+  return d.toLocaleString("ko-KR", {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  });
+}
+
+function lineCount(text: string): number {
+  return text.split("\n").filter((l) => l.trim().length > 0).length;
+}
+
 const shellStyle: CSSProperties = {
   position: "fixed",
   inset: 0,
@@ -40,27 +62,39 @@ const shellStyle: CSSProperties = {
 
 export default function Scanner() {
   const isScanning = useScannerStore((s) => s.isScanning);
-  const setIsScanning = useScannerStore((s) => s.setIsScanning);
-  const scanLines = useScannerStore((s) => s.scanLines);
-  const setScanLinesFromText = useScannerStore((s) => s.setScanLinesFromText);
-  const addValidatedDigitScan = useScannerStore((s) => s.addValidatedDigitScan);
+  const beginInventorySession = useScannerStore((s) => s.beginInventorySession);
+  const endInventorySession = useScannerStore((s) => s.endInventorySession);
+  const liveSessionText = useScannerStore((s) => s.liveSessionText);
+  const setLiveSessionText = useScannerStore((s) => s.setLiveSessionText);
+  const appendDigitScanToActiveSession = useScannerStore(
+    (s) => s.appendDigitScanToActiveSession
+  );
+  const lastCapturedCode = useScannerStore((s) => s.lastCapturedCode);
+  const lastCaptureAt = useScannerStore((s) => s.lastCaptureAt);
+  const sessionsRevision = useScannerStore((s) => s.sessionsRevision);
+  const bumpSessionsRevision = useScannerStore((s) => s.bumpSessionsRevision);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  const [hydrated, setHydrated] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [mode, setMode] = useState<"idle" | "loading" | "camera" | "mock">(
     "idle"
   );
   const [flashKey, setFlashKey] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  const [sessionKeys, setSessionKeys] = useState<string[]>([]);
+  const [historyKey, setHistoryKey] = useState<string | null>(null);
+  const [historyText, setHistoryText] = useState("");
+
   useEffect(() => {
-    if (useScannerStore.persist.hasHydrated()) setHydrated(true);
-    const unsub = useScannerStore.persist.onFinishHydration(() =>
-      setHydrated(true)
-    );
-    return unsub;
+    setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    setSessionKeys(listSessionStorageKeys());
+  }, [mounted, sessionsRevision]);
 
   const triggerFeedback = useCallback((digits: string) => {
     setFlashKey(Date.now());
@@ -75,17 +109,17 @@ export default function Scanner() {
     (text: string) => {
       const trimmed = text.trim();
       if (!DIGIT_ONLY.test(trimmed)) return;
-      const ok = addValidatedDigitScan(trimmed);
+      const ok = appendDigitScanToActiveSession(trimmed);
       if (ok) triggerFeedback(trimmed);
     },
-    [addValidatedDigitScan, triggerFeedback]
+    [appendDigitScanToActiveSession, triggerFeedback]
   );
 
   const handleMockScan = useCallback(() => {
     const code = randomDigits();
-    const ok = addValidatedDigitScan(code);
+    const ok = appendDigitScanToActiveSession(code);
     if (ok) triggerFeedback(code);
-  }, [addValidatedDigitScan, triggerFeedback]);
+  }, [appendDigitScanToActiveSession, triggerFeedback]);
 
   useEffect(() => {
     if (!isScanning) {
@@ -211,10 +245,48 @@ export default function Scanner() {
     };
   }, [isScanning, handleDecoded]);
 
-  const linesText = scanLines.join("\n");
   const showViewfinder = isScanning && mode === "camera";
   const showMockPanel = isScanning && mode === "mock";
-  const showStartOverlay = !isScanning;
+  const showIdleChrome = !isScanning;
+
+  const recentTailLines = useMemo(() => {
+    const lines = liveSessionText.split("\n").filter((l) => l.length > 0);
+    return lines.slice(-6);
+  }, [liveSessionText]);
+
+  const openHistory = useCallback(
+    (key: string) => {
+      setHistoryKey(key);
+      setHistoryText(readSessionRaw(key));
+    },
+    []
+  );
+
+  const onHistoryTextChange = useCallback((text: string) => {
+    if (!historyKey) return;
+    setHistoryText(text);
+    writeSessionRaw(historyKey, text);
+  }, [historyKey]);
+
+  const handleDeleteHistory = useCallback(() => {
+    if (!historyKey) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("이 점검 기록을 삭제할까요?")
+    ) {
+      return;
+    }
+    deleteSessionKey(historyKey);
+    setHistoryKey(null);
+    setHistoryText("");
+    bumpSessionsRevision();
+  }, [historyKey, bumpSessionsRevision]);
+
+  const handleStartInventory = useCallback(() => {
+    setHistoryKey(null);
+    setHistoryText("");
+    beginInventorySession();
+  }, [beginInventorySession]);
 
   return (
     <div
@@ -236,30 +308,98 @@ export default function Scanner() {
         hidden={!showViewfinder}
       />
 
-      {showStartOverlay && (
-        <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center px-5 pt-4 pb-32">
-          <button
-            type="button"
-            onClick={() => setIsScanning(true)}
-            className="flex h-[min(4.5rem,18vw)] w-full max-w-sm items-center justify-center rounded-3xl bg-emerald-600 text-xl font-semibold text-white shadow-xl shadow-emerald-950/40 active:bg-emerald-700"
-          >
-            스캔 시작
-          </button>
-          <p className="mt-6 max-w-sm text-center text-sm leading-relaxed text-zinc-500">
-            버튼을 누른 뒤 카메라를 허용하면 점검을 시작합니다. 숫자만
-            인식합니다.
+      {showIdleChrome && (
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[min(52dvh,22rem)]">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            이전 장서점검 기록
+          </h2>
+          <p className="mt-1 text-xs text-zinc-600">
+            시작 전에 로컬에 저장된 점검을 조회·수정할 수 있습니다.
           </p>
+
+          <div className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-900/50">
+            {!mounted ? (
+              <p className="p-4 text-sm text-zinc-500">불러오는 중…</p>
+            ) : sessionKeys.length === 0 ? (
+              <p className="p-4 text-sm text-zinc-500">
+                저장된 점검 기록이 없습니다.
+              </p>
+            ) : (
+              <ul className="divide-y divide-zinc-800">
+                {sessionKeys.map((key) => {
+                  const raw = readSessionRaw(key);
+                  const n = lineCount(raw);
+                  const active = historyKey === key;
+                  return (
+                    <li key={key}>
+                      <button
+                        type="button"
+                        onClick={() => openHistory(key)}
+                        className={`flex w-full flex-col items-start gap-0.5 px-4 py-3 text-left active:bg-zinc-800/80 ${active ? "bg-zinc-800/60" : ""}`}
+                      >
+                        <span className="text-sm font-medium text-zinc-100">
+                          {formatSessionKeyLabel(key)}
+                        </span>
+                        <span className="text-xs text-zinc-500">
+                          스캔 {n}건
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          {historyKey && (
+            <div className="mt-3 shrink-0 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-xs text-zinc-500">
+                  편집: {formatSessionKeyLabel(historyKey)}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleDeleteHistory}
+                  className="shrink-0 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-1.5 text-xs font-medium text-red-200 active:bg-red-950/70"
+                >
+                  삭제
+                </button>
+              </div>
+              <textarea
+                value={historyText}
+                onChange={(e) => onHistoryTextChange(e.target.value)}
+                spellCheck={false}
+                autoComplete="off"
+                autoCorrect="off"
+                className="max-h-36 min-h-[6rem] w-full resize-y rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/30 focus:ring-2"
+              />
+            </div>
+          )}
+
+          <div className="mt-auto flex shrink-0 flex-col items-center pt-4">
+            <button
+              type="button"
+              onClick={handleStartInventory}
+              className="flex h-16 w-full max-w-sm items-center justify-center rounded-3xl bg-emerald-600 text-lg font-semibold text-white shadow-xl shadow-emerald-950/40 active:bg-emerald-700"
+            >
+              장서점검 시작
+            </button>
+            <p className="mt-3 max-w-sm text-center text-xs leading-relaxed text-zinc-500">
+              시작 시점이 키가 되며, 스캔마다 해당 키 값에 즉시 줄 단위로
+              저장됩니다.
+            </p>
+          </div>
         </div>
       )}
 
       {isScanning && mode === "loading" && !isLikelyDesktop() && (
-        <div className="relative z-10 flex flex-1 items-center justify-center pb-36">
+        <div className="relative z-10 flex flex-1 items-center justify-center pb-52">
           <p className="text-sm text-zinc-500">카메라 준비 중…</p>
         </div>
       )}
 
       {showMockPanel && (
-        <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center px-5 pb-32 pt-4">
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center px-5 pb-52 pt-4">
           <div className="w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-900/90 p-8 shadow-xl shadow-black/40">
             <h1 className="text-center text-xl font-semibold tracking-tight text-white">
               개발용 테스트 스캔
@@ -279,18 +419,63 @@ export default function Scanner() {
       )}
 
       {isScanning && (mode === "camera" || mode === "mock") && (
-        <div className="pointer-events-auto fixed inset-x-0 top-0 z-40 flex justify-end p-4 pt-[max(1rem,env(safe-area-inset-top))]">
-          <button
-            type="button"
-            onClick={() => setIsScanning(false)}
-            className="rounded-full border border-zinc-600 bg-zinc-900/90 px-4 py-2 text-sm font-medium text-zinc-200 active:bg-zinc-800"
-          >
-            스캔 중지
-          </button>
-        </div>
+        <>
+          <div className="pointer-events-auto fixed inset-x-0 top-0 z-40 flex justify-end p-4 pt-[max(1rem,env(safe-area-inset-top))]">
+            <button
+              type="button"
+              onClick={() => endInventorySession()}
+              className="rounded-full border border-amber-700/80 bg-zinc-950/90 px-4 py-2.5 text-sm font-semibold text-amber-100 shadow-lg shadow-black/40 active:bg-zinc-900"
+            >
+              점검 중단
+            </button>
+          </div>
+
+          <div className="pointer-events-none fixed inset-x-0 top-[max(4.5rem,env(safe-area-inset-top)+3rem)] z-30 flex flex-col items-center px-4">
+            {lastCapturedCode ? (
+              <div
+                key={lastCaptureAt}
+                className="scan-live-code-hit w-full max-w-lg rounded-2xl border border-emerald-500/50 bg-emerald-950/85 px-4 py-3 text-center shadow-lg shadow-emerald-950/50 backdrop-blur-sm"
+              >
+                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-emerald-400/90">
+                  방금 인식
+                </p>
+                <p className="mt-1 font-mono text-3xl font-bold tabular-nums tracking-tight text-emerald-50">
+                  {lastCapturedCode}
+                </p>
+                {recentTailLines.length > 1 && (
+                  <div className="mt-3 border-t border-emerald-800/60 pt-2 text-left">
+                    <p className="mb-1 text-[0.65rem] font-medium uppercase tracking-wider text-emerald-500/80">
+                      최근 스캔
+                    </p>
+                    <ul className="max-h-24 space-y-1 overflow-y-auto font-mono text-xs leading-snug text-emerald-100/90 tabular-nums">
+                      {recentTailLines.map((line, i) => (
+                        <li
+                          key={`${lastCaptureAt}-${i}-${line}`}
+                          className={
+                            line === lastCapturedCode
+                              ? "font-semibold text-white"
+                              : ""
+                          }
+                        >
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-zinc-700/80 bg-zinc-950/80 px-4 py-3 text-center backdrop-blur-sm">
+                <p className="text-sm text-zinc-400">
+                  바코드를 비추면 숫자가 여기에 바로 표시됩니다.
+                </p>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
-      <div className="pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex max-h-[42dvh] flex-col border-t border-zinc-800 bg-zinc-950/95 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md">
+      <div className="pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex max-h-[min(48dvh,24rem)] flex-col border-t border-zinc-800 bg-zinc-950/95 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md">
         {toast && (
           <div
             className="mb-2 rounded-xl border border-emerald-500/40 bg-emerald-950/90 px-3 py-2 text-center text-sm text-emerald-100"
@@ -300,21 +485,23 @@ export default function Scanner() {
           </div>
         )}
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
-          스캔 목록 (줄 단위 · 직접 수정 가능)
+          {isScanning
+            ? "이번 점검 누적 (즉시 저장 · 수정 가능)"
+            : "이번 점검 미리보기"}
         </label>
-        {hydrated ? (
+        {isScanning ? (
           <textarea
-            value={linesText}
-            onChange={(e) => setScanLinesFromText(e.target.value)}
+            value={liveSessionText}
+            onChange={(e) => setLiveSessionText(e.target.value)}
             spellCheck={false}
             autoComplete="off"
             autoCorrect="off"
-            className="min-h-[7.5rem] w-full flex-1 resize-y rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-base leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/40 focus:ring-2"
-            placeholder="스캔한 숫자가 한 줄씩 표시됩니다."
+            className="min-h-[6.5rem] w-full flex-1 resize-y rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/40 focus:ring-2"
+            placeholder="스캔한 숫자가 한 줄씩 즉시 반영됩니다."
           />
         ) : (
-          <div className="min-h-[7.5rem] w-full rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-3 text-sm text-zinc-500">
-            목록 불러오는 중…
+          <div className="min-h-[6.5rem] w-full rounded-xl border border-dashed border-zinc-800 bg-zinc-900/40 px-3 py-3 text-sm text-zinc-600">
+            장서점검 시작 후 이 영역에 이번 세션 데이터가 표시됩니다.
           </div>
         )}
       </div>

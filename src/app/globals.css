@@ -21,3 +21,22 @@
 .scan-success-flash {
   animation: scan-success-flash 0.45s ease-out forwards;
 }
+
+@keyframes scan-live-code-hit {
+  0% {
+    transform: scale(0.96);
+    box-shadow: 0 0 0 0 rgb(52 211 153 / 0%);
+  }
+  35% {
+    transform: scale(1.02);
+    box-shadow: 0 0 28px 4px rgb(52 211 153 / 45%);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgb(52 211 153 / 0%);
+  }
+}
+
+.scan-live-code-hit {
+  animation: scan-live-code-hit 0.55s ease-out;
+}
