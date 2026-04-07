@@ -53,6 +53,78 @@ function lineCount(text: string): number {
   return text.split("\n").filter((l) => l.trim().length > 0).length;
 }
 
+/** 스캔 줄만 추려 줄바꿈으로 연결한 플레인 텍스트 */
+function toClipboardPlainText(raw: string): string {
+  return raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .join("\n");
+}
+
+function CopyBarcodeListButton({
+  sourceText,
+  disabled,
+}: {
+  sourceText: string;
+  disabled: boolean;
+}) {
+  const [copyDone, setCopyDone] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current !== null) {
+        clearTimeout(resetTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    if (disabled) return;
+    const plain = toClipboardPlainText(sourceText);
+    if (!plain) return;
+
+    try {
+      await navigator.clipboard.writeText(plain);
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        navigator.vibrate([50]);
+      }
+      if (resetTimerRef.current !== null) {
+        clearTimeout(resetTimerRef.current);
+      }
+      setCopyDone(true);
+      const id = window.setTimeout(() => {
+        setCopyDone(false);
+        resetTimerRef.current = null;
+      }, 2000);
+      resetTimerRef.current = id;
+    } catch {
+      window.alert(
+        "클립보드에 복사하지 못했습니다.\n\n" +
+          "• Safari: 주소창 aA/자물쇠에서 클립보드 관련 권한을 확인하세요.\n" +
+          "• 목록을 길게 눌러 선택·복사할 수 있습니다.\n" +
+          "• HTTPS 페이지에서만 동작할 수 있습니다."
+      );
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => void handleCopy()}
+      className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold tracking-tight shadow-sm transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
+        copyDone
+          ? "bg-emerald-600 text-white shadow-emerald-900/35"
+          : "border border-zinc-500/60 bg-zinc-800/95 text-zinc-100 active:bg-zinc-700/95"
+      }`}
+    >
+      {copyDone ? "복사 완료! ✅" : "목록 복사"}
+    </button>
+  );
+}
+
 const shellStyle: CSSProperties = {
   minHeight: "100dvh",
   maxHeight: "100dvh",
@@ -295,13 +367,21 @@ export default function Scanner() {
       className="flex max-h-[min(32vh,280px)] min-h-0 shrink-0 flex-col border-t border-zinc-800 bg-zinc-950"
       aria-label="과거 장서점검 기록"
     >
-      <div className="shrink-0 px-3 py-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          저장된 장서점검 기록
-        </h2>
-        <p className="text-[0.65rem] text-zinc-600">
-          항목을 눌러 조회·수정·삭제할 수 있습니다.
-        </p>
+      <div className="flex shrink-0 items-start justify-between gap-2 px-3 py-2">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            저장된 장서점검 기록
+          </h2>
+          <p className="text-[0.65rem] text-zinc-600">
+            항목을 눌러 조회·수정·삭제할 수 있습니다.
+          </p>
+        </div>
+        <CopyBarcodeListButton
+          sourceText={historyKey ? historyText : ""}
+          disabled={
+            !historyKey || lineCount(historyKey ? historyText : "") === 0
+          }
+        />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {!mounted ? (
@@ -509,9 +589,15 @@ export default function Scanner() {
 
       {inSession && (
         <div className="relative z-40 shrink-0 border-t border-zinc-800 bg-zinc-950/98 px-3 py-2">
-          <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
-            이번 점검 누적 (즉시 저장)
-          </label>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              이번 점검 누적 (즉시 저장)
+            </label>
+            <CopyBarcodeListButton
+              sourceText={liveSessionText}
+              disabled={lineCount(liveSessionText) === 0}
+            />
+          </div>
           <textarea
             value={liveSessionText}
             onChange={(e) => setLiveSessionText(e.target.value)}
