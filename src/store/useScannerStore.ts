@@ -1,28 +1,25 @@
 import { create } from "zustand";
 
 const DIGIT_ONLY = /^\d+$/;
-const DEDUP_WINDOW_MS = 2000;
+/** 동일 바코드만 2초간 재입력 차단 (다른 바코드는 즉시 허용) */
+const SAME_CODE_COOLDOWN_MS = 2000;
 
 /** 세션별 본문 저장용 키 접두사 (값: 줄바꿈으로 구분된 스캔 텍스트) */
 export const SESSION_STORAGE_PREFIX = "book-scanner:session:";
 
-type Dedup = { at: number; value: string };
+/** 마지막으로 수락한 스캔 시각·값 (동일 코드 쿨다운용) */
+type LastAcceptedScan = { at: number; value: string };
 
 type ScannerState = {
-  /** 점검 세션 열림(저장 키 존재). 카메라와 무관 */
   activeSessionKey: string | null;
-  /** 사용자가 「바코드 스캔」으로 카메라(또는 목업)를 켠 상태 */
-  cameraActive: boolean;
   liveSessionText: string;
   lastCapturedCode: string | null;
   lastCaptureAt: number;
   sessionsRevision: number;
-  _dedup: Dedup | null;
+  _lastAccepted: LastAcceptedScan | null;
 
   beginInventorySession: () => string;
   endInventorySession: () => void;
-  startCameraScan: () => void;
-  stopCameraScan: () => void;
   setLiveSessionText: (text: string) => void;
   appendDigitScanToActiveSession: (raw: string) => boolean;
   bumpSessionsRevision: () => void;
@@ -72,12 +69,11 @@ export function deleteSessionKey(key: string): void {
 
 export const useScannerStore = create<ScannerState>((set, get) => ({
   activeSessionKey: null,
-  cameraActive: false,
   liveSessionText: "",
   lastCapturedCode: null,
   lastCaptureAt: 0,
   sessionsRevision: 0,
-  _dedup: null,
+  _lastAccepted: null,
 
   bumpSessionsRevision: () =>
     set((s) => ({ sessionsRevision: s.sessionsRevision + 1 })),
@@ -87,9 +83,8 @@ export const useScannerStore = create<ScannerState>((set, get) => ({
     writeSessionRaw(key, "");
     set({
       activeSessionKey: key,
-      cameraActive: false,
       liveSessionText: "",
-      _dedup: null,
+      _lastAccepted: null,
       lastCapturedCode: null,
       lastCaptureAt: 0,
     });
@@ -100,22 +95,12 @@ export const useScannerStore = create<ScannerState>((set, get) => ({
   endInventorySession: () => {
     set({
       activeSessionKey: null,
-      cameraActive: false,
       liveSessionText: "",
-      _dedup: null,
+      _lastAccepted: null,
       lastCapturedCode: null,
       lastCaptureAt: 0,
     });
     get().bumpSessionsRevision();
-  },
-
-  startCameraScan: () => {
-    if (!get().activeSessionKey) return;
-    set({ cameraActive: true });
-  },
-
-  stopCameraScan: () => {
-    set({ cameraActive: false });
   },
 
   setLiveSessionText: (text) => {
@@ -128,14 +113,15 @@ export const useScannerStore = create<ScannerState>((set, get) => ({
   appendDigitScanToActiveSession: (raw) => {
     const digits = normalizeDigits(raw);
     if (!digits) return false;
-    const { activeSessionKey, _dedup } = get();
+    const { activeSessionKey, _lastAccepted } = get();
     if (!activeSessionKey) return false;
 
     const now = Date.now();
+    /* Distinct-until-changed: 직전 수락 값과 같고 쿨다운 안에만 무시 */
     if (
-      _dedup &&
-      _dedup.value === digits &&
-      now - _dedup.at < DEDUP_WINDOW_MS
+      _lastAccepted &&
+      _lastAccepted.value === digits &&
+      now - _lastAccepted.at < SAME_CODE_COOLDOWN_MS
     ) {
       return false;
     }
@@ -143,7 +129,7 @@ export const useScannerStore = create<ScannerState>((set, get) => ({
     const nextText = appendLineToLocalStorage(activeSessionKey, digits);
     set({
       liveSessionText: nextText,
-      _dedup: { at: now, value: digits },
+      _lastAccepted: { at: now, value: digits },
       lastCapturedCode: digits,
       lastCaptureAt: now,
     });

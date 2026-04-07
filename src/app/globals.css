@@ -40,3 +40,23 @@
 .scan-live-code-hit {
   animation: scan-live-code-hit 0.55s ease-out;
 }
+
+/* html5-qrcode 마운트 대상: 뷰파인더가 레이아웃·비디오에 잡히도록 */
+#reader {
+  width: 100%;
+  min-width: 60vw;
+  max-width: 100%;
+  min-height: 60dvh;
+  flex: 1 1 auto;
+  position: relative;
+  z-index: 20;
+  overflow: hidden;
+  background: rgb(9 9 11);
+}
+
+#reader video {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: min(60dvh, 100%);
+  object-fit: cover;
+}

@@ -51,9 +51,25 @@ npm start
 
 자세한 요구·로드맵은 [PRD.md](./PRD.md)를 참고하세요.
 
-## 배포
+## 배포 (Vercel)
 
-[Vercel](https://vercel.com) 등에 Next 앱으로 배포하면 됩니다. 프로덕션 빌드에서 PWA 플러그인이 서비스 워커를 생성합니다.
+프로덕션 빌드에서 PWA 플러그인이 서비스 워커를 생성합니다.
+
+### `main` 푸시 시 자동 배포 (권장)
+
+수동으로 Deployments에서 “Create Deployment” 할 필요 없이, **Git 저장소만 Vercel에 연결**하면 `main`에 푸시할 때마다 프로덕션 배포가 자동으로 진행됩니다.
+
+1. [Vercel 대시보드](https://vercel.com/dashboard) → **Add New…** → **Project** (또는 기존 프로젝트 선택).
+2. **Import Git Repository**에서 이 저장소(GitHub/GitLab/Bitbucket)를 선택하고 **Import**합니다.  
+   - 이미 프로젝트만 있고 Git이 비어 있다면: 해당 프로젝트 **Settings** → **Git** → **Connect Git Repository**로 같은 작업을 합니다.
+3. Framework Preset이 **Next.js**로 잡혀 있는지 확인하고 **Deploy**를 누릅니다.
+4. 이후 **`main` 브랜치에 push(또는 merge)** 할 때마다 Vercel이 자동으로 빌드·배포합니다. Production Branch는 기본값이 `main`입니다 (**Settings** → **Git** → **Production Branch**).
+
+별도 GitHub Actions 없이 위 연결만으로 `main` 푸시 → 자동 배포가 완료됩니다.
+
+### 참고
+
+조직 정책 등으로 Vercel–Git 연결이 불가하고 CI에서만 배포해야 한다면, Vercel 문서의 **“Deploying with GitHub Actions”**를 따라 저장소 시크릿과 워크플로를 직접 구성하면 됩니다. 일반적인 경우는 위 Git 연결이 가장 단순합니다.
 
 ## 참고
 
