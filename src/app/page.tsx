@@ -32,8 +32,6 @@ function toPlain(text: string): string {
     .join("\n");
 }
 
-const CAMERA_TOGGLE_STORAGE_KEY = "book-scanner:camera-enabled";
-
 type Screen = "main" | "scan" | "list" | "detail";
 
 function screenFromState(state: unknown): Screen | null {
@@ -68,7 +66,6 @@ export default function Home() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedText, setSelectedText] = useState("");
   const [copyDone, setCopyDone] = useState(false);
-  const [cameraEnabled, setCameraEnabled] = useState(true);
   const timerRef = useRef<number | null>(null);
   const skipNextPopConfirmRef = useRef(false);
   const didSetupHistoryRef = useRef(false);
@@ -101,12 +98,6 @@ export default function Home() {
     return () => {
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const saved = window.localStorage.getItem(CAMERA_TOGGLE_STORAGE_KEY);
-    if (saved === "off") setCameraEnabled(false);
   }, []);
 
   useEffect(() => {
@@ -156,42 +147,10 @@ export default function Home() {
   }, [applyScreen]);
 
   const startWork = () => {
-    if (!cameraEnabled) {
-      window.alert(
-        "카메라가 OFF 상태입니다. 하단 토글에서 ON으로 변경한 뒤 다시 시작해 주세요."
-      );
-      return;
-    }
     beginInventorySession();
     setIsScanMode(true);
     pushScreenHistory("scan");
   };
-
-  const toggleCameraAccess = useCallback(async () => {
-    if (cameraEnabled) {
-      setCameraEnabled(false);
-      window.localStorage.setItem(CAMERA_TOGGLE_STORAGE_KEY, "off");
-      return;
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      window.alert("이 브라우저에서는 카메라 권한 요청을 지원하지 않습니다.");
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      stream.getTracks().forEach((track) => track.stop());
-      setCameraEnabled(true);
-      window.localStorage.setItem(CAMERA_TOGGLE_STORAGE_KEY, "on");
-    } catch {
-      window.alert(
-        "카메라 권한을 켤 수 없습니다. 브라우저 설정에서 카메라를 허용해 주세요."
-      );
-    }
-  }, [cameraEnabled]);
 
   const openDetail = (key: string) => {
     setSelectedKey(key);
@@ -377,38 +336,6 @@ export default function Home() {
               />
             </div>
           </section>
-        )}
-
-        {adminView === "main" && (
-          <div className="mt-auto pt-6">
-            <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-zinc-100">
-                    카메라 권한
-                  </p>
-                  <p className="text-xs text-zinc-400">
-                    {cameraEnabled
-                      ? "ON: 스캔 시작 시 카메라를 사용할 수 있습니다."
-                      : "OFF: 스캔 시작 전 카메라 권한을 다시 켜주세요."}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={cameraEnabled}
-                  onClick={() => void toggleCameraAccess()}
-                  className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                    cameraEnabled
-                      ? "bg-emerald-600 text-white active:bg-emerald-700"
-                      : "border border-zinc-600 bg-zinc-800 text-zinc-100 active:bg-zinc-700"
-                  }`}
-                >
-                  {cameraEnabled ? "ON" : "OFF"}
-                </button>
-              </div>
-            </section>
-          </div>
         )}
       </div>
     </main>
