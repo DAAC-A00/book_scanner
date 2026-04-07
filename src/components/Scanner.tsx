@@ -62,6 +62,49 @@ function toClipboardPlainText(raw: string): string {
     .join("\n");
 }
 
+/** Chrome·Safari: Secure Context에서 Clipboard API 우선, 실패 시 사용자 제스처 내 execCommand 폴백 */
+function legacyExecCommandCopy(text: string): void {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.cssText =
+    "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;padding:0;border:0;margin:0;";
+  document.body.appendChild(ta);
+  ta.focus();
+  const len = text.length;
+  try {
+    if (typeof ta.setSelectionRange === "function") {
+      ta.setSelectionRange(0, len);
+    } else {
+      ta.select();
+    }
+    const ok = document.execCommand("copy");
+    if (!ok) throw new Error("execCommand copy returned false");
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
+async function writeTextToClipboard(text: string): Promise<void> {
+  if (typeof window === "undefined") throw new Error("no window");
+
+  const hasAsyncClipboard =
+    typeof navigator !== "undefined" &&
+    Boolean(navigator.clipboard?.writeText) &&
+    window.isSecureContext;
+
+  if (hasAsyncClipboard) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      /* Clipboard API 거부·일시 오류 → 폴백 */
+    }
+  }
+
+  legacyExecCommandCopy(text);
+}
+
 function CopyBarcodeListButton({
   sourceText,
   disabled,
@@ -86,7 +129,7 @@ function CopyBarcodeListButton({
     if (!plain) return;
 
     try {
-      await navigator.clipboard.writeText(plain);
+      await writeTextToClipboard(plain);
       if (typeof navigator !== "undefined" && "vibrate" in navigator) {
         navigator.vibrate([50]);
       }
@@ -102,9 +145,9 @@ function CopyBarcodeListButton({
     } catch {
       window.alert(
         "클립보드에 복사하지 못했습니다.\n\n" +
-          "• Safari: 주소창 aA/자물쇠에서 클립보드 관련 권한을 확인하세요.\n" +
-          "• 목록을 길게 눌러 선택·복사할 수 있습니다.\n" +
-          "• HTTPS 페이지에서만 동작할 수 있습니다."
+          "• Chrome: 주소창 오른쪽 자물쇠/사이트 정보에서 권한을 확인하거나, HTTPS·localhost에서 열었는지 확인하세요.\n" +
+          "• Safari: 주소창 aA/자물쇠에서 붙여넣기·클립보드 권한을 허용해 보세요.\n" +
+          "• 텍스트 상자에서 길게 눌러 전체 선택 후 복사할 수도 있습니다."
       );
     }
   };

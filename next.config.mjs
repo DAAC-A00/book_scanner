@@ -8,6 +8,20 @@ const withPWA = withPWAInit({
 });
 
 /** @type {import('next').NextConfig} */
-const nextConfig = {};
+const nextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Permissions-Policy",
+            value: "camera=(self)",
+          },
+        ],
+      },
+    ];
+  },
+};
 
 export default withPWA(nextConfig);
