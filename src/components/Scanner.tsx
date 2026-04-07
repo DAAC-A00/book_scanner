@@ -213,6 +213,8 @@ export default function Scanner() {
   const [sessionKeys, setSessionKeys] = useState<string[]>([]);
   const [historyKey, setHistoryKey] = useState<string | null>(null);
   const [historyText, setHistoryText] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyView, setHistoryView] = useState<"list" | "detail">("list");
 
   const inSession = activeSessionKey !== null;
 
@@ -388,6 +390,8 @@ export default function Scanner() {
   const openHistory = useCallback((key: string) => {
     setHistoryKey(key);
     setHistoryText(readSessionRaw(key));
+    setHistoryView("detail");
+    setHistoryOpen(true);
   }, []);
 
   const onHistoryTextChange = useCallback(
@@ -411,6 +415,7 @@ export default function Scanner() {
     setHistoryKey(null);
     setHistoryText("");
     bumpSessionsRevision();
+    setHistoryView("list");
   }, [historyKey, bumpSessionsRevision]);
 
   const handleStartInventory = useCallback(() => {
@@ -418,85 +423,128 @@ export default function Scanner() {
     setHistoryText("");
     beginInventorySession();
   }, [beginInventorySession]);
+ 
+  const openHistoryList = useCallback(() => {
+    setHistoryOpen(true);
+    setHistoryView("list");
+  }, []);
 
-  const historySection = (
-    <section
-      className="flex max-h-[min(32vh,280px)] min-h-0 shrink-0 flex-col border-t border-zinc-800 bg-zinc-950"
-      aria-label="과거 장서점검 기록"
-    >
-      <div className="flex shrink-0 items-start justify-between gap-2 px-3 py-2">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            저장된 장서점검 기록
-          </h2>
-          <p className="text-[0.65rem] text-zinc-600">
-            항목을 눌러 조회·수정·삭제할 수 있습니다.
-          </p>
-        </div>
-        <CopyBarcodeListButton
-          sourceText={historyKey ? historyText : ""}
-          disabled={
-            !historyKey || lineCount(historyKey ? historyText : "") === 0
-          }
-        />
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {!mounted ? (
-          <p className="px-2 py-3 text-sm text-zinc-500">불러오는 중…</p>
-        ) : sessionKeys.length === 0 ? (
-          <p className="px-2 py-3 text-sm text-zinc-500">
-            저장된 점검 기록이 없습니다.
-          </p>
-        ) : (
-          <ul className="divide-y divide-zinc-800 rounded-xl border border-zinc-800 bg-zinc-900/40">
-            {sessionKeys.map((key) => {
-              const raw = readSessionRaw(key);
-              const n = lineCount(raw);
-              const active = historyKey === key;
-              return (
-                <li key={key}>
-                  <button
-                    type="button"
-                    onClick={() => openHistory(key)}
-                    className={`flex w-full flex-col items-start gap-0.5 px-3 py-2.5 text-left active:bg-zinc-800/80 ${active ? "bg-zinc-800/50" : ""}`}
-                  >
-                    <span className="text-sm font-medium text-zinc-100">
-                      {formatSessionKeyLabel(key)}
-                    </span>
-                    <span className="text-xs text-zinc-500">스캔 {n}건</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+  const closeHistory = useCallback(() => {
+    setHistoryOpen(false);
+  }, []);
+
+  const historyModal = historyOpen ? (
+    <div className="fixed inset-0 z-[110]">
+      <div
+        className="absolute inset-0 bg-black/70"
+        onClick={closeHistory}
+        aria-hidden
+      />
+      <div className="absolute inset-0 flex flex-col bg-zinc-950 text-zinc-100">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950/95 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-md">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              점검 목록
+            </p>
+            <p className="truncate text-sm font-semibold text-white">
+              저장된 장서점검 기록
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={closeHistory}
+            className="rounded-full border border-zinc-600 bg-zinc-900/90 px-4 py-2 text-sm font-medium text-zinc-200 active:bg-zinc-800"
+          >
+            닫기
+          </button>
+        </header>
+
+        {historyView === "list" && (
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            {!mounted ? (
+              <p className="text-sm text-zinc-500">불러오는 중…</p>
+            ) : sessionKeys.length === 0 ? (
+              <p className="text-sm text-zinc-500">저장된 점검 기록이 없습니다.</p>
+            ) : (
+              <ul className="divide-y divide-zinc-800 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/40">
+                {sessionKeys.map((key) => {
+                  const raw = readSessionRaw(key);
+                  const n = lineCount(raw);
+                  return (
+                    <li key={key}>
+                      <button
+                        type="button"
+                        onClick={() => openHistory(key)}
+                        className="flex w-full flex-col items-start gap-1 px-4 py-3 text-left active:bg-zinc-800/80"
+                      >
+                        <span className="text-base font-semibold text-zinc-100">
+                          {formatSessionKeyLabel(key)}
+                        </span>
+                        <span className="text-sm text-zinc-500">
+                          스캔 {n}건
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {historyView === "detail" && historyKey && (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 px-4 pt-4">
+              <button
+                type="button"
+                onClick={() => setHistoryView("list")}
+                className="text-sm font-medium text-zinc-300 active:text-white"
+              >
+                ← 목록으로
+              </button>
+              <h3 className="mt-3 text-lg font-semibold text-white">
+                {formatSessionKeyLabel(historyKey)}
+              </h3>
+              <p className="mt-1 text-sm text-zinc-500">
+                삭제·수정·복사 중 원하는 작업을 선택하세요.
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <CopyBarcodeListButton
+                  sourceText={historyText}
+                  disabled={lineCount(historyText) === 0}
+                />
+                <button
+                  type="button"
+                  onClick={handleDeleteHistory}
+                  className="rounded-full border border-red-900/60 bg-red-950/40 px-4 py-2 text-sm font-semibold text-red-100 active:bg-red-950/70"
+                >
+                  삭제
+                </button>
+                <button
+                  type="button"
+                  onClick={closeHistory}
+                  className="rounded-full border border-zinc-600 bg-zinc-900/90 px-4 py-2 text-sm font-medium text-zinc-200 active:bg-zinc-800"
+                >
+                  완료
+                </button>
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+              <textarea
+                value={historyText}
+                onChange={(e) => onHistoryTextChange(e.target.value)}
+                spellCheck={false}
+                autoComplete="off"
+                autoCorrect="off"
+                className="h-full min-h-[40dvh] w-full resize-none rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 font-mono text-sm leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/30 focus:ring-2"
+              />
+            </div>
+          </div>
         )}
       </div>
-      {historyKey && (
-        <div className="shrink-0 border-t border-zinc-800 bg-zinc-950 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="truncate text-xs text-zinc-500">
-              {formatSessionKeyLabel(historyKey)}
-            </span>
-            <button
-              type="button"
-              onClick={handleDeleteHistory}
-              className="shrink-0 rounded-lg border border-red-900/60 bg-red-950/40 px-2.5 py-1 text-xs font-medium text-red-200 active:bg-red-950/70"
-            >
-              삭제
-            </button>
-          </div>
-          <textarea
-            value={historyText}
-            onChange={(e) => onHistoryTextChange(e.target.value)}
-            spellCheck={false}
-            autoComplete="off"
-            autoCorrect="off"
-            className="max-h-28 min-h-[5rem] w-full resize-y rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-2 font-mono text-xs leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/30 focus:ring-2"
-          />
-        </div>
-      )}
-    </section>
-  );
+    </div>
+  ) : null;
 
   return (
     <div
@@ -516,11 +564,11 @@ export default function Scanner() {
         {!inSession && (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
             <h1 className="text-2xl font-bold tracking-tight text-white">
-              책찍!
+              빛나래 장서점검
             </h1>
             <p className="mt-1 text-sm leading-relaxed text-zinc-500">
-              바코드만 스윽— 줄줄이 쌓이는 장서점검. 「책찍! 시작」이면 카메라가
-              바로 열립니다. 과거 기록은 맨 아래에서 볼 수 있어요.
+              바코드만 스윽— 줄줄이 쌓이는 장서점검. 시작하면 카메라가 바로
+              열립니다.
             </p>
             {mounted && sessionKeys.length > 0 && (
               <p className="mt-3 rounded-lg border border-emerald-900/40 bg-emerald-950/25 px-3 py-2 text-sm text-emerald-100/90">
@@ -528,13 +576,22 @@ export default function Scanner() {
                 있습니다.
               </p>
             )}
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={openHistoryList}
+                className="w-full rounded-2xl border border-zinc-700 bg-zinc-900/70 px-4 py-3 text-left text-sm font-semibold text-zinc-100 active:bg-zinc-800"
+              >
+                점검 목록 보러가기
+              </button>
+            </div>
             <div className="mt-8 flex flex-1 flex-col items-center justify-center pb-8">
               <button
                 type="button"
                 onClick={handleStartInventory}
                 className="flex h-16 w-full max-w-sm items-center justify-center rounded-3xl bg-gradient-to-b from-emerald-500 to-emerald-600 text-lg font-semibold text-white shadow-xl shadow-emerald-950/45 ring-1 ring-white/10 active:from-emerald-600 active:to-emerald-700"
               >
-                책찍! 시작
+                장서점검 시작
               </button>
             </div>
           </div>
@@ -542,7 +599,14 @@ export default function Scanner() {
 
         {inSession && (
           <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
-            <header className="relative z-50 flex shrink-0 justify-end border-b border-zinc-800/80 bg-zinc-950/95 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md">
+            <header className="relative z-50 flex shrink-0 items-center justify-between gap-2 border-b border-zinc-800/80 bg-zinc-950/95 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md">
+              <button
+                type="button"
+                onClick={openHistoryList}
+                className="rounded-full border border-zinc-600 bg-zinc-900/90 px-4 py-2 text-sm font-medium text-zinc-200 active:bg-zinc-800"
+              >
+                점검 목록
+              </button>
               <button
                 type="button"
                 onClick={() => endInventorySession()}
@@ -666,8 +730,7 @@ export default function Scanner() {
           />
         </div>
       )}
-
-      {historySection}
+      {historyModal}
     </div>
   );
 }

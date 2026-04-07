@@ -1,7 +1,7 @@
 {
-  "name": "책찍! — 빠른 장서점검",
-  "short_name": "책찍!",
-  "description": "바코드만 스윽— 줄줄이 쌓이는 도서관 장서점검. 오프라인에도 기록은 안전.",
+  "name": "빛나래 장서점검",
+  "short_name": "빛나래",
+  "description": "바코드만 스윽— 줄줄이 쌓이는 도서관 장서점검. 오프라인에서도 기록은 안전.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

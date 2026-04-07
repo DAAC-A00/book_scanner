@@ -22,14 +22,14 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "책찍! — 빠른 장서점검",
+  title: "빛나래 장서점검",
   description:
     "바코드만 스윽— 줄줄이 쌓이는 장서점검. 홈 화면에 두고 오프라인에서도 쓰세요.",
   manifest: "/manifest.json",
-  applicationName: "책찍!",
+  applicationName: "빛나래 장서점검",
   appleWebApp: {
     capable: true,
-    title: "책찍!",
+    title: "빛나래 장서점검",
     statusBarStyle: "black-translucent",
   },
   formatDetection: {
