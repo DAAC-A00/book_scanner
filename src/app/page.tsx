@@ -256,10 +256,10 @@ export default function Home() {
           <section className="flex min-h-0 flex-1 flex-col">
             <div className="rounded-3xl border border-zinc-800 bg-linear-to-b from-zinc-900 to-zinc-950 p-6 shadow-2xl shadow-black/30">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400/90">
-                Main / Admin
+                MAIN 화면
               </p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">
-                빛나래 장서점검
+                언제나 밝은 도서부
               </h1>
               <p className="mt-2 text-sm leading-relaxed text-zinc-400">
                 업무 시작과 데이터 관리를 분리한 메인 화면입니다.

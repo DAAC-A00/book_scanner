@@ -62,6 +62,12 @@ function appendLineToLocalStorage(key: string, line: string): string {
   return next;
 }
 
+function hasAnyNonEmptyLine(text: string): boolean {
+  return text
+    .split("\n")
+    .some((line) => line.trim().length > 0);
+}
+
 export function deleteSessionKey(key: string): void {
   if (typeof window === "undefined") return;
   localStorage.removeItem(key);
@@ -93,6 +99,13 @@ export const useScannerStore = create<ScannerState>((set, get) => ({
   },
 
   endInventorySession: () => {
+    const { activeSessionKey } = get();
+    if (activeSessionKey) {
+      const raw = readSessionRaw(activeSessionKey);
+      if (!hasAnyNonEmptyLine(raw)) {
+        deleteSessionKey(activeSessionKey);
+      }
+    }
     set({
       activeSessionKey: null,
       liveSessionText: "",
