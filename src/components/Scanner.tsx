@@ -62,6 +62,8 @@ export default function Scanner() {
   );
   const [flashKey, setFlashKey] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [cameraRetryToken, setCameraRetryToken] = useState(0);
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
 
   const inSession = activeSessionKey !== null;
 
@@ -83,6 +85,31 @@ export default function Scanner() {
     },
     [appendDigitScanToActiveSession, triggerFeedback]
   );
+
+  const handleRequestCameraPermission = useCallback(async () => {
+    if (isRequestingPermission) return;
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setToast("이 기기에서는 카메라 권한 요청을 지원하지 않습니다.");
+      window.setTimeout(() => setToast(null), 1200);
+      return;
+    }
+
+    setIsRequestingPermission(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      stream.getTracks().forEach((track) => track.stop());
+      setToast("카메라 권한이 확인되었습니다. 스캔을 다시 시작합니다.");
+      window.setTimeout(() => setToast(null), 1200);
+      setCameraRetryToken((prev) => prev + 1);
+    } catch {
+      setToast("카메라 권한이 필요합니다. 브라우저 설정에서 허용해 주세요.");
+      window.setTimeout(() => setToast(null), 1400);
+    } finally {
+      setIsRequestingPermission(false);
+    }
+  }, [isRequestingPermission]);
 
   useEffect(() => {
     const shouldRunCamera = activeSessionKey !== null;
@@ -207,7 +234,7 @@ export default function Scanner() {
         }
       });
     };
-  }, [activeSessionKey, handleDecoded]);
+  }, [activeSessionKey, handleDecoded, cameraRetryToken]);
 
   const showReader = inSession && !isLikelyDesktop() && mode !== "mock";
   const showMockPanel = inSession && mode === "mock";
@@ -267,6 +294,18 @@ export default function Scanner() {
                       브라우저의 카메라 권한이 차단되어 스캔을 시작할 수 없습니다.
                       권한을 허용한 뒤 다시 시도해 주세요.
                     </p>
+                    {!isLikelyDesktop() && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRequestCameraPermission()}
+                        disabled={isRequestingPermission}
+                        className="mt-5 w-full rounded-xl border border-emerald-700/70 bg-emerald-900/70 px-4 py-3 text-sm font-semibold text-emerald-100 transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isRequestingPermission
+                          ? "카메라 권한 확인 중..."
+                          : "카메라 접근 허용하기"}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
