@@ -7,7 +7,6 @@ import {
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -46,7 +45,11 @@ const shellStyle: CSSProperties = {
   maxHeight: "100dvh",
 };
 
-export default function Scanner() {
+type ScannerProps = {
+  onExitSession?: () => void;
+};
+
+export default function Scanner({ onExitSession }: ScannerProps) {
   const activeSessionKey = useScannerStore((s) => s.activeSessionKey);
   const endInventorySession = useScannerStore((s) => s.endInventorySession);
   const liveSessionText = useScannerStore((s) => s.liveSessionText);
@@ -276,6 +279,11 @@ export default function Scanner() {
   const showMockPanel = inSession && mode === "mock";
   const showCameraLoading =
     inSession && !isLikelyDesktop() && mode === "loading";
+  const handleExitSession = () => {
+    if (!window.confirm("점검을 종료하고 메인 화면으로 이동할까요?")) return;
+    endInventorySession();
+    onExitSession?.();
+  };
 
   return (
     <div
@@ -294,13 +302,13 @@ export default function Scanner() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {inSession && (
           <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
-            <header className="relative z-50 flex shrink-0 items-center justify-end gap-2 border-b border-zinc-800/80 bg-zinc-950/95 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md">
+            <header className="relative z-50 flex shrink-0 items-center justify-start gap-2 border-b border-zinc-800/80 bg-zinc-950/95 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md">
               <button
                 type="button"
-                onClick={() => endInventorySession()}
+                onClick={handleExitSession}
                 className="rounded-full border border-amber-700/80 bg-zinc-900 px-4 py-2 text-sm font-semibold text-amber-100 active:bg-zinc-800"
               >
-                점검 종료
+                종료
               </button>
             </header>
 

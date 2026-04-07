@@ -32,6 +32,22 @@ function toPlain(text: string): string {
     .join("\n");
 }
 
+type Screen = "main" | "scan" | "list" | "detail";
+
+function screenFromState(state: unknown): Screen | null {
+  if (!state || typeof state !== "object") return null;
+  const maybe = (state as { screen?: unknown }).screen;
+  if (
+    maybe === "main" ||
+    maybe === "scan" ||
+    maybe === "list" ||
+    maybe === "detail"
+  ) {
+    return maybe;
+  }
+  return null;
+}
+
 async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
 }
@@ -44,26 +60,39 @@ export default function Home() {
   const [adminView, setAdminView] = useState<"main" | "list" | "detail">(
     "main"
   );
-  const [sessionKeys, setSessionKeys] = useState<string[]>([]);
+  const [sessionKeys, setSessionKeys] = useState<string[]>(() =>
+    listSessionStorageKeys()
+  );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedText, setSelectedText] = useState("");
   const [copyDone, setCopyDone] = useState(false);
   const timerRef = useRef<number | null>(null);
+  const skipNextPopConfirmRef = useRef(false);
+  const didSetupHistoryRef = useRef(false);
+
+  const applyScreen = useCallback(
+    (screen: Screen) => {
+      if (screen === "scan") {
+        if (!activeSessionKey) {
+          beginInventorySession();
+        }
+        setIsScanMode(true);
+        return;
+      }
+      setIsScanMode(false);
+      setAdminView(screen);
+    },
+    [activeSessionKey, beginInventorySession]
+  );
+
+  const pushScreenHistory = useCallback((screen: Screen) => {
+    if (typeof window === "undefined") return;
+    window.history.pushState({ screen }, "", window.location.href);
+  }, []);
 
   const refreshList = useCallback(() => {
     setSessionKeys(listSessionStorageKeys());
   }, []);
-
-  useEffect(() => {
-    refreshList();
-  }, [refreshList]);
-
-  useEffect(() => {
-    if (isScanMode && !activeSessionKey) {
-      setIsScanMode(false);
-      refreshList();
-    }
-  }, [activeSessionKey, isScanMode, refreshList]);
 
   useEffect(() => {
     return () => {
@@ -71,9 +100,56 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || didSetupHistoryRef.current) return;
+    didSetupHistoryRef.current = true;
+    window.history.replaceState({ screen: "main", root: true }, "", window.location.href);
+    window.history.pushState({ screen: "main", guard: true }, "", window.location.href);
+  }, []);
+
+  useEffect(() => {
+    const onPopState = (event: PopStateEvent) => {
+      const targetScreen = screenFromState(event.state);
+      if (!targetScreen) return;
+
+      if (targetScreen === "main") {
+        setIsScanMode(false);
+        setAdminView("main");
+        const isRootState =
+          !!event.state &&
+          typeof event.state === "object" &&
+          (event.state as { root?: boolean }).root === true;
+
+        if (isRootState) {
+          const shouldSkipConfirm = skipNextPopConfirmRef.current;
+          skipNextPopConfirmRef.current = false;
+          if (shouldSkipConfirm) return;
+
+          if (window.confirm("앱을 종료할까요?")) {
+            skipNextPopConfirmRef.current = true;
+            window.history.back();
+            return;
+          }
+          window.history.pushState(
+            { screen: "main", guard: true },
+            "",
+            window.location.href
+          );
+        }
+        return;
+      }
+
+      applyScreen(targetScreen);
+    };
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [applyScreen]);
+
   const startWork = () => {
     beginInventorySession();
     setIsScanMode(true);
+    pushScreenHistory("scan");
   };
 
   const openDetail = (key: string) => {
@@ -81,6 +157,7 @@ export default function Home() {
     setSelectedText(readSessionRaw(key));
     setCopyDone(false);
     setAdminView("detail");
+    pushScreenHistory("detail");
   };
 
   const onChangeDetail = (value: string) => {
@@ -119,7 +196,14 @@ export default function Home() {
   if (isScanMode) {
     return (
       <main className="relative min-h-dvh overflow-hidden bg-black text-white">
-        <Scanner />
+        <Scanner
+          onExitSession={() => {
+            setIsScanMode(false);
+            setAdminView("main");
+            refreshList();
+            window.history.back();
+          }}
+        />
       </main>
     );
   }
@@ -150,7 +234,10 @@ export default function Home() {
               </button>
               <button
                 type="button"
-                onClick={() => setAdminView("list")}
+                onClick={() => {
+                  setAdminView("list");
+                  pushScreenHistory("list");
+                }}
                 className="flex h-16 items-center justify-center rounded-3xl border border-zinc-700 bg-zinc-900 text-base font-semibold text-zinc-100 active:bg-zinc-800"
               >
                 저장된 점검 목록 ({totalRecords}건)
@@ -162,16 +249,17 @@ export default function Home() {
         {adminView === "list" && (
           <section className="flex min-h-0 flex-1 flex-col rounded-2xl border border-zinc-800 bg-zinc-900/40">
             <header className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => window.history.back()}
+                className="rounded-full border border-zinc-600 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-zinc-200 active:bg-zinc-800"
+              >
+                뒤로
+              </button>
               <h2 className="text-base font-semibold text-zinc-100">
                 저장된 점검 목록
               </h2>
-              <button
-                type="button"
-                onClick={() => setAdminView("main")}
-                className="rounded-full border border-zinc-600 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-zinc-200 active:bg-zinc-800"
-              >
-                메인
-              </button>
+              <span className="w-[64px]" aria-hidden />
             </header>
             <div className="min-h-0 flex-1 overflow-y-auto">
               {sessionKeys.length === 0 ? (
@@ -210,10 +298,10 @@ export default function Home() {
             <header className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
               <button
                 type="button"
-                onClick={() => setAdminView("list")}
-                className="text-sm font-medium text-zinc-300 active:text-white"
+                onClick={() => window.history.back()}
+                className="rounded-full border border-zinc-600 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-zinc-200 active:bg-zinc-800"
               >
-                ← 목록
+                뒤로
               </button>
               <span className="text-xs text-zinc-500">{selectedCount}건</span>
             </header>
