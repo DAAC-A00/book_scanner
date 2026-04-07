@@ -25,21 +25,6 @@ function isLikelyDesktop(): boolean {
   return !coarsePointer && !hasTouch;
 }
 
-/** 저격 스코프: 반투명 마스크 + 가는 레이저(터치는 모두 통과) */
-function SniperLaserOverlay() {
-  return (
-    <div
-      className="pointer-events-none absolute inset-0 z-[45] flex items-center justify-center"
-      aria-hidden
-    >
-      <div className="pointer-events-none relative aspect-video w-3/4 max-w-sm overflow-hidden rounded-xl shadow-[0_0_0_max(100vmax,120vh)_rgb(0_0_0_/_0.5)]">
-        <div className="sniper-laser-ray" />
-      </div>
-    </div>
-  );
-}
-
-
 const shellStyle: CSSProperties = {
   minHeight: "100dvh",
   maxHeight: "100dvh",
@@ -210,7 +195,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           /back|rear|environment|wide/i.test(c.label)
         );
 
-        /* qrbox 생략 → 라이브러리 기본 쉐이딩 비활성화, 전역 프레임 디코딩 + 커스텀 오버레이만 사용 */
+        /* qrbox 생략 → 라이브러리 기본 쉐이딩 비활성화, 전역 프레임 디코딩 */
         const scanConfig = {
           fps: 12,
         };
@@ -324,7 +309,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                     id={READER_ID}
                     className="relative z-10 h-full min-h-[40dvh] w-full"
                   />
-                  {mode === "camera" && <SniperLaserOverlay />}
                 </div>
               )}
 

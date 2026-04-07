@@ -65,25 +65,3 @@
 #reader #qr-shaded-region {
   display: none !important;
 }
-
-@keyframes sniper-laser-sweep {
-  0%,
-  100% {
-    top: 8%;
-  }
-  50% {
-    top: 88%;
-  }
-}
-
-.sniper-laser-ray {
-  pointer-events: none;
-  position: absolute;
-  left: 3%;
-  right: 3%;
-  height: 2px;
-  border-radius: 9999px;
-  background: rgb(239 68 68);
-  box-shadow: 0 0 8px rgb(239 68 68 / 0.85);
-  animation: sniper-laser-sweep 2.2s ease-in-out infinite;
-}
