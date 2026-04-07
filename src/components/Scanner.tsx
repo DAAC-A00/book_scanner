@@ -25,29 +25,6 @@ function isLikelyDesktop(): boolean {
   return !coarsePointer && !hasTouch;
 }
 
-function getCameraSettingsUrl(): string | null {
-  if (typeof navigator === "undefined") return null;
-  const ua = navigator.userAgent.toLowerCase();
-
-  // Chromium 계열(안드로이드 포함)
-  if (ua.includes("chrome") && !ua.includes("edg") && !ua.includes("opr")) {
-    return "chrome://settings/content/camera";
-  }
-
-  // Firefox
-  if (ua.includes("firefox")) {
-    return "about:preferences#privacy";
-  }
-
-  // Edge
-  if (ua.includes("edg")) {
-    return "edge://settings/content/camera";
-  }
-
-  // Safari(iOS/macOS)는 웹에서 시스템 설정 페이지 직접 오픈이 제한적임
-  return null;
-}
-
 /** 저격 스코프: 반투명 마스크 + 가는 레이저(터치는 모두 통과) */
 function SniperLaserOverlay() {
   return (
@@ -91,7 +68,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const [cameraRetryToken, setCameraRetryToken] = useState(0);
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
   const [permissionHint, setPermissionHint] = useState<string | null>(null);
-  const [isOpeningSettings, setIsOpeningSettings] = useState(false);
 
   const inSession = activeSessionKey !== null;
 
@@ -151,28 +127,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       setIsRequestingPermission(false);
     }
   }, [isRequestingPermission]);
-
-  const handleOpenCameraSettings = useCallback(() => {
-    if (isOpeningSettings) return;
-    setIsOpeningSettings(true);
-
-    const settingsUrl = getCameraSettingsUrl();
-    if (!settingsUrl) {
-      setPermissionHint(
-        "이 브라우저는 보안 정책상 설정 화면 자동 이동을 지원하지 않습니다. 주소창 좌측 자물쇠 아이콘 > 카메라 허용으로 변경해 주세요."
-      );
-      setToast("설정 자동 열기를 지원하지 않는 브라우저입니다.");
-      window.setTimeout(() => setToast(null), 1400);
-      setIsOpeningSettings(false);
-      return;
-    }
-
-    // 브라우저 설정 탭으로 직접 이동 시도
-    window.location.assign(settingsUrl);
-    window.setTimeout(() => {
-      setIsOpeningSettings(false);
-    }, 500);
-  }, [isOpeningSettings]);
 
   useEffect(() => {
     if (!inSession || mode !== "mock" || isLikelyDesktop()) return;
@@ -400,16 +354,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                           {isRequestingPermission
                             ? "카메라 권한 확인 중..."
                             : "카메라 접근 허용하기"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleOpenCameraSettings}
-                          disabled={isOpeningSettings}
-                          className="w-full rounded-xl border border-zinc-600 bg-zinc-800/90 px-4 py-3 text-sm font-semibold text-zinc-100 transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isOpeningSettings
-                            ? "설정 화면 여는 중..."
-                            : "브라우저 설정 열기"}
                         </button>
                         <p className="text-center text-xs text-zinc-500">
                           설정에서 권한을 허용한 뒤 이 화면으로 돌아오면 자동으로 다시 확인합니다.
