@@ -54,7 +54,6 @@ const shellStyle: CSSProperties = {
 
 export default function Scanner() {
   const activeSessionKey = useScannerStore((s) => s.activeSessionKey);
-  const beginInventorySession = useScannerStore((s) => s.beginInventorySession);
   const endInventorySession = useScannerStore((s) => s.endInventorySession);
   const liveSessionText = useScannerStore((s) => s.liveSessionText);
   const setLiveSessionText = useScannerStore((s) => s.setLiveSessionText);
@@ -229,10 +228,6 @@ export default function Scanner() {
   const showCameraLoading =
     inSession && !isLikelyDesktop() && mode === "loading";
 
-  const handleStartInventory = useCallback(() => {
-    beginInventorySession();
-  }, [beginInventorySession]);
-
   return (
     <div
       className="isolate flex w-full flex-col overflow-hidden bg-zinc-950 text-zinc-100"
@@ -248,27 +243,6 @@ export default function Scanner() {
       )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {!inSession && (
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <h1 className="text-2xl font-bold tracking-tight text-white">
-              빛나래 장서점검
-            </h1>
-            <p className="mt-1 text-sm leading-relaxed text-zinc-500">
-              바코드만 스윽— 줄줄이 쌓이는 장서점검. 시작하면 카메라가 바로
-              열립니다.
-            </p>
-            <div className="mt-8 flex flex-1 flex-col items-center justify-center pb-8">
-              <button
-                type="button"
-                onClick={handleStartInventory}
-                className="flex h-16 w-full max-w-sm items-center justify-center rounded-3xl bg-gradient-to-b from-emerald-500 to-emerald-600 text-lg font-semibold text-white shadow-xl shadow-emerald-950/45 ring-1 ring-white/10 active:from-emerald-600 active:to-emerald-700"
-              >
-                장서점검 시작
-              </button>
-            </div>
-          </div>
-        )}
-
         {inSession && (
           <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
             <header className="relative z-50 flex shrink-0 items-center justify-end gap-2 border-b border-zinc-800/80 bg-zinc-950/95 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md">
