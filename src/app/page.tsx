@@ -139,23 +139,6 @@ export default function Home() {
               <p className="mt-2 text-sm leading-relaxed text-zinc-400">
                 업무 시작과 데이터 관리를 분리한 메인 화면입니다.
               </p>
-              <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
-                  <p className="text-xs text-zinc-500">저장된 점검 건수</p>
-                  <p className="mt-1 text-2xl font-bold text-zinc-100">
-                    {totalRecords}
-                    <span className="ml-1 text-base font-medium text-zinc-400">
-                      건
-                    </span>
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
-                  <p className="text-xs text-zinc-500">현재 상태</p>
-                  <p className="mt-1 text-sm font-medium text-zinc-200">
-                    카메라 비활성화 (관리 모드)
-                  </p>
-                </div>
-              </div>
             </div>
             <div className="mt-7 grid gap-3 sm:grid-cols-2">
               <button
@@ -170,7 +153,7 @@ export default function Home() {
                 onClick={() => setAdminView("list")}
                 className="flex h-16 items-center justify-center rounded-3xl border border-zinc-700 bg-zinc-900 text-base font-semibold text-zinc-100 active:bg-zinc-800"
               >
-                저장된 점검 목록
+                저장된 점검 목록 ({totalRecords}건)
               </button>
             </div>
           </section>

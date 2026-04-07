@@ -26,12 +26,6 @@ function isLikelyDesktop(): boolean {
   return !coarsePointer && !hasTouch;
 }
 
-function randomDigits(): string {
-  return Array.from({ length: 13 }, () =>
-    String(Math.floor(Math.random() * 10))
-  ).join("");
-}
-
 /** 저격 스코프: 반투명 마스크 + 가는 레이저(터치는 모두 통과) */
 function SniperLaserOverlay() {
   return (
@@ -60,8 +54,6 @@ export default function Scanner() {
   const appendDigitScanToActiveSession = useScannerStore(
     (s) => s.appendDigitScanToActiveSession
   );
-  const lastCapturedCode = useScannerStore((s) => s.lastCapturedCode);
-  const lastCaptureAt = useScannerStore((s) => s.lastCaptureAt);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
@@ -91,12 +83,6 @@ export default function Scanner() {
     },
     [appendDigitScanToActiveSession, triggerFeedback]
   );
-
-  const handleMockScan = useCallback(() => {
-    const code = randomDigits();
-    const ok = appendDigitScanToActiveSession(code);
-    if (ok) triggerFeedback(code);
-  }, [appendDigitScanToActiveSession, triggerFeedback]);
 
   useEffect(() => {
     const shouldRunCamera = activeSessionKey !== null;
@@ -275,18 +261,12 @@ export default function Scanner() {
                 <div className="relative z-20 flex min-h-[40dvh] flex-col items-center justify-center px-4 py-6">
                   <div className="w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-xl">
                     <h2 className="text-center text-lg font-semibold text-white">
-                      개발용 테스트 스캔
+                      카메라 접근을 허용해주세요
                     </h2>
-                    <p className="mt-2 text-center text-sm text-zinc-400">
-                      PC에서는 가상 스캔으로 숫자를 쌓을 수 있습니다.
+                    <p className="mt-3 text-center text-sm leading-relaxed text-zinc-400">
+                      브라우저의 카메라 권한이 차단되어 스캔을 시작할 수 없습니다.
+                      권한을 허용한 뒤 다시 시도해 주세요.
                     </p>
-                    <button
-                      type="button"
-                      onClick={handleMockScan}
-                      className="mt-6 flex h-14 w-full items-center justify-center rounded-2xl bg-emerald-600 text-base font-semibold text-white active:bg-emerald-700"
-                    >
-                      가상 스캔 (13자리)
-                    </button>
                   </div>
                 </div>
               )}
