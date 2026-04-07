@@ -1,1 +1,23 @@
 @import "tailwindcss";
+
+@keyframes scan-success-flash {
+  0% {
+    opacity: 0;
+    border-color: transparent;
+    box-shadow: inset 0 0 0 0 rgb(52 211 153 / 0%);
+  }
+  40% {
+    opacity: 1;
+    border-color: rgb(52 211 153);
+    box-shadow: inset 0 0 0 4px rgb(52 211 153 / 35%);
+  }
+  100% {
+    opacity: 0;
+    border-color: transparent;
+    box-shadow: inset 0 0 0 0 rgb(52 211 153 / 0%);
+  }
+}
+
+.scan-success-flash {
+  animation: scan-success-flash 0.45s ease-out forwards;
+}
