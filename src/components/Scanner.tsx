@@ -79,7 +79,7 @@ export default function Scanner() {
       navigator.vibrate([100]);
     }
     setToast(`스캔 완료: ${digits}`);
-    window.setTimeout(() => setToast(null), 2600);
+    window.setTimeout(() => setToast(null), 1000);
   }, []);
 
   const handleDecoded = useCallback(
