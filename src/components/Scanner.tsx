@@ -213,10 +213,11 @@ export default function Scanner() {
   const [sessionKeys, setSessionKeys] = useState<string[]>([]);
   const [historyKey, setHistoryKey] = useState<string | null>(null);
   const [historyText, setHistoryText] = useState("");
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"work" | "history">("work");
   const [historyView, setHistoryView] = useState<"list" | "detail">("list");
 
   const inSession = activeSessionKey !== null;
+  const isWorkTab = activeTab === "work";
 
   useEffect(() => {
     setMounted(true);
@@ -253,7 +254,8 @@ export default function Scanner() {
   }, [appendDigitScanToActiveSession, triggerFeedback]);
 
   useEffect(() => {
-    if (!activeSessionKey) {
+    const shouldRunCamera = activeSessionKey !== null && isWorkTab;
+    if (!shouldRunCamera) {
       setMode("idle");
       const instance = scannerRef.current;
       scannerRef.current = null;
@@ -374,13 +376,13 @@ export default function Scanner() {
         }
       });
     };
-  }, [activeSessionKey, handleDecoded]);
+  }, [activeSessionKey, handleDecoded, isWorkTab]);
 
   const showReader =
-    inSession && !isLikelyDesktop() && mode !== "mock";
-  const showMockPanel = inSession && mode === "mock";
+    inSession && isWorkTab && !isLikelyDesktop() && mode !== "mock";
+  const showMockPanel = inSession && isWorkTab && mode === "mock";
   const showCameraLoading =
-    inSession && !isLikelyDesktop() && mode === "loading";
+    inSession && isWorkTab && !isLikelyDesktop() && mode === "loading";
 
   const recentTailLines = useMemo(() => {
     const lines = liveSessionText.split("\n").filter((l) => l.length > 0);
@@ -391,7 +393,6 @@ export default function Scanner() {
     setHistoryKey(key);
     setHistoryText(readSessionRaw(key));
     setHistoryView("detail");
-    setHistoryOpen(true);
   }, []);
 
   const onHistoryTextChange = useCallback(
@@ -424,127 +425,81 @@ export default function Scanner() {
     beginInventorySession();
   }, [beginInventorySession]);
  
-  const openHistoryList = useCallback(() => {
-    setHistoryOpen(true);
-    setHistoryView("list");
-  }, []);
-
-  const closeHistory = useCallback(() => {
-    setHistoryOpen(false);
-  }, []);
-
-  const historyModal = historyOpen ? (
-    <div className="fixed inset-0 z-[110]">
-      <div
-        className="absolute inset-0 bg-black/70"
-        onClick={closeHistory}
-        aria-hidden
-      />
-      <div className="absolute inset-0 flex flex-col bg-zinc-950 text-zinc-100">
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950/95 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-md">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              점검 목록
-            </p>
-            <p className="truncate text-sm font-semibold text-white">
-              저장된 장서점검 기록
-            </p>
-          </div>
+  const historyScreen = (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <h2 className="text-lg font-semibold tracking-tight text-white">
+        점검 기록
+      </h2>
+      <p className="mt-1 text-sm text-zinc-500">
+        저장된 점검을 열어 수정, 삭제, 복사할 수 있습니다.
+      </p>
+      {historyView === "list" && (
+        <div className="mt-4 min-h-0 flex-1 overflow-y-auto pb-24">
+          {!mounted ? (
+            <p className="text-sm text-zinc-500">불러오는 중…</p>
+          ) : sessionKeys.length === 0 ? (
+            <p className="text-sm text-zinc-500">저장된 점검 기록이 없습니다.</p>
+          ) : (
+            <ul className="divide-y divide-zinc-800 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/40">
+              {sessionKeys.map((key) => {
+                const raw = readSessionRaw(key);
+                const n = lineCount(raw);
+                return (
+                  <li key={key}>
+                    <button
+                      type="button"
+                      onClick={() => openHistory(key)}
+                      className="flex w-full flex-col items-start gap-1 px-4 py-3 text-left active:bg-zinc-800/80"
+                    >
+                      <span className="text-base font-semibold text-zinc-100">
+                        {formatSessionKeyLabel(key)}
+                      </span>
+                      <span className="text-sm text-zinc-500">스캔 {n}건</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+      {historyView === "detail" && historyKey && (
+        <div className="mt-4 flex min-h-0 flex-1 flex-col pb-24">
           <button
             type="button"
-            onClick={closeHistory}
-            className="rounded-full border border-zinc-600 bg-zinc-900/90 px-4 py-2 text-sm font-medium text-zinc-200 active:bg-zinc-800"
+            onClick={() => setHistoryView("list")}
+            className="w-fit text-sm font-medium text-zinc-300 active:text-white"
           >
-            닫기
+            ← 목록으로
           </button>
-        </header>
-
-        {historyView === "list" && (
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-            {!mounted ? (
-              <p className="text-sm text-zinc-500">불러오는 중…</p>
-            ) : sessionKeys.length === 0 ? (
-              <p className="text-sm text-zinc-500">저장된 점검 기록이 없습니다.</p>
-            ) : (
-              <ul className="divide-y divide-zinc-800 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/40">
-                {sessionKeys.map((key) => {
-                  const raw = readSessionRaw(key);
-                  const n = lineCount(raw);
-                  return (
-                    <li key={key}>
-                      <button
-                        type="button"
-                        onClick={() => openHistory(key)}
-                        className="flex w-full flex-col items-start gap-1 px-4 py-3 text-left active:bg-zinc-800/80"
-                      >
-                        <span className="text-base font-semibold text-zinc-100">
-                          {formatSessionKeyLabel(key)}
-                        </span>
-                        <span className="text-sm text-zinc-500">
-                          스캔 {n}건
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+          <h3 className="mt-3 text-lg font-semibold text-white">
+            {formatSessionKeyLabel(historyKey)}
+          </h3>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <CopyBarcodeListButton
+              sourceText={historyText}
+              disabled={lineCount(historyText) === 0}
+            />
+            <button
+              type="button"
+              onClick={handleDeleteHistory}
+              className="rounded-full border border-red-900/60 bg-red-950/40 px-4 py-2 text-sm font-semibold text-red-100 active:bg-red-950/70"
+            >
+              삭제
+            </button>
           </div>
-        )}
-
-        {historyView === "detail" && historyKey && (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="shrink-0 px-4 pt-4">
-              <button
-                type="button"
-                onClick={() => setHistoryView("list")}
-                className="text-sm font-medium text-zinc-300 active:text-white"
-              >
-                ← 목록으로
-              </button>
-              <h3 className="mt-3 text-lg font-semibold text-white">
-                {formatSessionKeyLabel(historyKey)}
-              </h3>
-              <p className="mt-1 text-sm text-zinc-500">
-                삭제·수정·복사 중 원하는 작업을 선택하세요.
-              </p>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <CopyBarcodeListButton
-                  sourceText={historyText}
-                  disabled={lineCount(historyText) === 0}
-                />
-                <button
-                  type="button"
-                  onClick={handleDeleteHistory}
-                  className="rounded-full border border-red-900/60 bg-red-950/40 px-4 py-2 text-sm font-semibold text-red-100 active:bg-red-950/70"
-                >
-                  삭제
-                </button>
-                <button
-                  type="button"
-                  onClick={closeHistory}
-                  className="rounded-full border border-zinc-600 bg-zinc-900/90 px-4 py-2 text-sm font-medium text-zinc-200 active:bg-zinc-800"
-                >
-                  완료
-                </button>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
-              <textarea
-                value={historyText}
-                onChange={(e) => onHistoryTextChange(e.target.value)}
-                spellCheck={false}
-                autoComplete="off"
-                autoCorrect="off"
-                className="h-full min-h-[40dvh] w-full resize-none rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 font-mono text-sm leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/30 focus:ring-2"
-              />
-            </div>
-          </div>
-        )}
-      </div>
+          <textarea
+            value={historyText}
+            onChange={(e) => onHistoryTextChange(e.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            className="mt-3 h-full min-h-[38dvh] w-full resize-none rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 font-mono text-sm leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/30 focus:ring-2"
+          />
+        </div>
+      )}
     </div>
-  ) : null;
+  );
 
   return (
     <div
@@ -561,7 +516,7 @@ export default function Scanner() {
       )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {!inSession && (
+        {activeTab === "work" && !inSession && (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
             <h1 className="text-2xl font-bold tracking-tight text-white">
               빛나래 장서점검
@@ -570,21 +525,6 @@ export default function Scanner() {
               바코드만 스윽— 줄줄이 쌓이는 장서점검. 시작하면 카메라가 바로
               열립니다.
             </p>
-            {mounted && sessionKeys.length > 0 && (
-              <p className="mt-3 rounded-lg border border-emerald-900/40 bg-emerald-950/25 px-3 py-2 text-sm text-emerald-100/90">
-                저장된 점검 {sessionKeys.length}건 — 아래 목록에서 열 수
-                있습니다.
-              </p>
-            )}
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={openHistoryList}
-                className="w-full rounded-2xl border border-zinc-700 bg-zinc-900/70 px-4 py-3 text-left text-sm font-semibold text-zinc-100 active:bg-zinc-800"
-              >
-                점검 목록 보러가기
-              </button>
-            </div>
             <div className="mt-8 flex flex-1 flex-col items-center justify-center pb-8">
               <button
                 type="button"
@@ -597,16 +537,9 @@ export default function Scanner() {
           </div>
         )}
 
-        {inSession && (
+        {activeTab === "work" && inSession && (
           <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
-            <header className="relative z-50 flex shrink-0 items-center justify-between gap-2 border-b border-zinc-800/80 bg-zinc-950/95 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md">
-              <button
-                type="button"
-                onClick={openHistoryList}
-                className="rounded-full border border-zinc-600 bg-zinc-900/90 px-4 py-2 text-sm font-medium text-zinc-200 active:bg-zinc-800"
-              >
-                점검 목록
-              </button>
+            <header className="relative z-50 flex shrink-0 items-center justify-end gap-2 border-b border-zinc-800/80 bg-zinc-950/95 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md">
               <button
                 type="button"
                 onClick={() => endInventorySession()}
@@ -698,6 +631,8 @@ export default function Scanner() {
             </div>
           </div>
         )}
+
+        {activeTab === "history" && historyScreen}
       </div>
 
       {toast && (
@@ -709,7 +644,7 @@ export default function Scanner() {
         </div>
       )}
 
-      {inSession && (
+      {inSession && activeTab === "work" && (
         <div className="relative z-40 shrink-0 border-t border-zinc-800 bg-zinc-950/98 px-3 py-2">
           <div className="mb-1 flex items-center justify-between gap-2">
             <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -730,7 +665,32 @@ export default function Scanner() {
           />
         </div>
       )}
-      {historyModal}
+      <nav className="relative z-[100] shrink-0 border-t border-zinc-800 bg-zinc-950/95 px-2 py-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab("work")}
+            className={`rounded-xl px-3 py-3 text-sm font-semibold ${
+              activeTab === "work"
+                ? "bg-emerald-600 text-white"
+                : "bg-zinc-900 text-zinc-300 active:bg-zinc-800"
+            }`}
+          >
+            장서점검업무
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("history")}
+            className={`rounded-xl px-3 py-3 text-sm font-semibold ${
+              activeTab === "history"
+                ? "bg-emerald-600 text-white"
+                : "bg-zinc-900 text-zinc-300 active:bg-zinc-800"
+            }`}
+          >
+            점검 기록
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }
