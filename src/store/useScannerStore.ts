@@ -9,9 +9,10 @@ export const SESSION_STORAGE_PREFIX = "book-scanner:session:";
 type Dedup = { at: number; value: string };
 
 type ScannerState = {
-  isScanning: boolean;
+  /** 점검 세션 열림(저장 키 존재). 카메라와 무관 */
   activeSessionKey: string | null;
-  /** 현재 세션 본문 (localStorage와 동기) */
+  /** 사용자가 「바코드 스캔」으로 카메라(또는 목업)를 켠 상태 */
+  cameraActive: boolean;
   liveSessionText: string;
   lastCapturedCode: string | null;
   lastCaptureAt: number;
@@ -20,6 +21,8 @@ type ScannerState = {
 
   beginInventorySession: () => string;
   endInventorySession: () => void;
+  startCameraScan: () => void;
+  stopCameraScan: () => void;
   setLiveSessionText: (text: string) => void;
   appendDigitScanToActiveSession: (raw: string) => boolean;
   bumpSessionsRevision: () => void;
@@ -55,7 +58,6 @@ export function writeSessionRaw(key: string, text: string): void {
   localStorage.setItem(key, text);
 }
 
-/** 기존 값 끝에 한 줄 append 후 저장, 갱신된 전체 문자열 반환 */
 function appendLineToLocalStorage(key: string, line: string): string {
   const prev = readSessionRaw(key);
   const next = prev.length === 0 ? line : `${prev}\n${line}`;
@@ -69,8 +71,8 @@ export function deleteSessionKey(key: string): void {
 }
 
 export const useScannerStore = create<ScannerState>((set, get) => ({
-  isScanning: false,
   activeSessionKey: null,
+  cameraActive: false,
   liveSessionText: "",
   lastCapturedCode: null,
   lastCaptureAt: 0,
@@ -84,8 +86,8 @@ export const useScannerStore = create<ScannerState>((set, get) => ({
     const key = makeSessionStorageKey();
     writeSessionRaw(key, "");
     set({
-      isScanning: true,
       activeSessionKey: key,
+      cameraActive: false,
       liveSessionText: "",
       _dedup: null,
       lastCapturedCode: null,
@@ -97,14 +99,23 @@ export const useScannerStore = create<ScannerState>((set, get) => ({
 
   endInventorySession: () => {
     set({
-      isScanning: false,
       activeSessionKey: null,
+      cameraActive: false,
       liveSessionText: "",
       _dedup: null,
       lastCapturedCode: null,
       lastCaptureAt: 0,
     });
     get().bumpSessionsRevision();
+  },
+
+  startCameraScan: () => {
+    if (!get().activeSessionKey) return;
+    set({ cameraActive: true });
+  },
+
+  stopCameraScan: () => {
+    set({ cameraActive: false });
   },
 
   setLiveSessionText: (text) => {
