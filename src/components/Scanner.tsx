@@ -53,6 +53,20 @@ function lineCount(text: string): number {
   return text.split("\n").filter((l) => l.trim().length > 0).length;
 }
 
+/** 저격 스코프: 반투명 마스크 + 가는 레이저(터치는 모두 통과) */
+function SniperLaserOverlay() {
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-[45] flex items-center justify-center"
+      aria-hidden
+    >
+      <div className="pointer-events-none relative aspect-video w-3/4 max-w-sm overflow-hidden rounded-xl shadow-[0_0_0_max(100vmax,120vh)_rgb(0_0_0_/_0.5)]">
+        <div className="sniper-laser-ray" />
+      </div>
+    </div>
+  );
+}
+
 /** 스캔 줄만 추려 줄바꿈으로 연결한 플레인 텍스트 */
 function toClipboardPlainText(raw: string): string {
   return raw
@@ -298,9 +312,9 @@ export default function Scanner() {
           /back|rear|environment|wide/i.test(c.label)
         );
 
+        /* qrbox 생략 → 라이브러리 기본 쉐이딩 비활성화, 전역 프레임 디코딩 + 커스텀 오버레이만 사용 */
         const scanConfig = {
           fps: 12,
-          qrbox: (w: number, h: number) => ({ width: w, height: h }),
         };
 
         if (backCamera?.id) {
@@ -562,14 +576,15 @@ export default function Scanner() {
               {showReader && (
                 <div className="relative z-20 w-full min-w-[60%] min-h-[60dvh] shrink-0">
                   {showCameraLoading && (
-                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-zinc-950/85 backdrop-blur-sm">
+                    <div className="pointer-events-none absolute inset-0 z-[50] flex items-center justify-center bg-zinc-950/85 backdrop-blur-sm">
                       <p className="text-sm text-zinc-400">카메라 준비 중…</p>
                     </div>
                   )}
                   <div
                     id={READER_ID}
-                    className="relative h-full min-h-[60dvh] w-full"
+                    className="relative z-10 h-full min-h-[60dvh] w-full"
                   />
+                  {mode === "camera" && <SniperLaserOverlay />}
                 </div>
               )}
 
