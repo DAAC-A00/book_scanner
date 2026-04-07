@@ -64,6 +64,7 @@ export default function Scanner() {
   const [toast, setToast] = useState<string | null>(null);
   const [cameraRetryToken, setCameraRetryToken] = useState(0);
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
+  const [permissionHint, setPermissionHint] = useState<string | null>(null);
 
   const inSession = activeSessionKey !== null;
 
@@ -73,7 +74,7 @@ export default function Scanner() {
       navigator.vibrate([100]);
     }
     setToast(`스캔 완료: ${digits}`);
-    window.setTimeout(() => setToast(null), 1000);
+    window.setTimeout(() => setToast(null), 1500);
   }, []);
 
   const handleDecoded = useCallback(
@@ -91,10 +92,12 @@ export default function Scanner() {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setToast("이 기기에서는 카메라 권한 요청을 지원하지 않습니다.");
       window.setTimeout(() => setToast(null), 1200);
+      setPermissionHint("이 기기/브라우저에서는 카메라 권한 요청이 지원되지 않습니다.");
       return;
     }
 
     setIsRequestingPermission(true);
+    setPermissionHint("카메라 권한을 확인하는 중입니다...");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
@@ -102,14 +105,44 @@ export default function Scanner() {
       stream.getTracks().forEach((track) => track.stop());
       setToast("카메라 권한이 확인되었습니다. 스캔을 다시 시작합니다.");
       window.setTimeout(() => setToast(null), 1200);
+      setPermissionHint("권한 허용이 확인되었습니다. 카메라를 다시 시작합니다.");
       setCameraRetryToken((prev) => prev + 1);
-    } catch {
+    } catch (error) {
+      const deniedByBrowser =
+        typeof error === "object" &&
+        error !== null &&
+        "name" in error &&
+        (error as DOMException).name === "NotAllowedError";
       setToast("카메라 권한이 필요합니다. 브라우저 설정에서 허용해 주세요.");
       window.setTimeout(() => setToast(null), 1400);
+      setPermissionHint(
+        deniedByBrowser
+          ? "권한이 차단되어 재요청 팝업이 뜨지 않을 수 있습니다. 주소창의 사이트 설정에서 카메라를 '허용'으로 변경한 뒤 아래 버튼을 다시 눌러주세요."
+          : "카메라 권한을 확인하지 못했습니다. 설정에서 허용 후 다시 시도해 주세요."
+      );
     } finally {
       setIsRequestingPermission(false);
     }
   }, [isRequestingPermission]);
+
+  useEffect(() => {
+    if (!inSession || mode !== "mock" || isLikelyDesktop()) return;
+
+    const recheck = () => {
+      void handleRequestCameraPermission();
+    };
+
+    const onVisibilityChange = () => {
+      if (!document.hidden) recheck();
+    };
+
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [handleRequestCameraPermission, inSession, mode]);
 
   useEffect(() => {
     const shouldRunCamera = activeSessionKey !== null;
@@ -213,6 +246,9 @@ export default function Scanner() {
         }
         scannerRef.current = null;
         setMode("mock");
+        setPermissionHint(
+          "카메라에 접근할 수 없습니다. 권한을 허용한 뒤 아래 버튼으로 다시 연결해 주세요."
+        );
       }
     };
 
@@ -294,17 +330,27 @@ export default function Scanner() {
                       브라우저의 카메라 권한이 차단되어 스캔을 시작할 수 없습니다.
                       권한을 허용한 뒤 다시 시도해 주세요.
                     </p>
+                    {permissionHint && (
+                      <p className="mt-3 rounded-lg border border-zinc-700/80 bg-zinc-950/70 px-3 py-2 text-xs leading-relaxed text-zinc-300">
+                        {permissionHint}
+                      </p>
+                    )}
                     {!isLikelyDesktop() && (
-                      <button
-                        type="button"
-                        onClick={() => void handleRequestCameraPermission()}
-                        disabled={isRequestingPermission}
-                        className="mt-5 w-full rounded-xl border border-emerald-700/70 bg-emerald-900/70 px-4 py-3 text-sm font-semibold text-emerald-100 transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {isRequestingPermission
-                          ? "카메라 권한 확인 중..."
-                          : "카메라 접근 허용하기"}
-                      </button>
+                      <div className="mt-5 grid grid-cols-1 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleRequestCameraPermission()}
+                          disabled={isRequestingPermission}
+                          className="w-full rounded-xl border border-emerald-700/70 bg-emerald-900/70 px-4 py-3 text-sm font-semibold text-emerald-100 transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isRequestingPermission
+                            ? "카메라 권한 확인 중..."
+                            : "카메라 접근 허용하기"}
+                        </button>
+                        <p className="text-center text-xs text-zinc-500">
+                          설정에서 권한을 허용한 뒤 이 화면으로 돌아오면 자동으로 다시 확인합니다.
+                        </p>
+                      </div>
                     )}
                   </div>
                 </div>
