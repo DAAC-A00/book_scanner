@@ -17,12 +17,48 @@ import { useScannerStore } from "@/store/useScannerStore";
 const READER_ID = "reader";
 const DIGIT_ONLY = /^\d+$/;
 
+/** zoom 기능을 포함한 확장 타입 (표준 MediaTrackCapabilities 에 zoom 미포함) */
+interface ExtendedMediaTrackCapabilities extends MediaTrackCapabilities {
+  zoom?: { min: number; max: number; step: number };
+}
+interface ExtendedMediaTrackConstraintSet extends MediaTrackConstraintSet {
+  zoom?: number;
+}
+
 function isLikelyDesktop(): boolean {
   if (typeof window === "undefined") return true;
   const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
   const hasTouch =
     "ontouchstart" in window || (navigator.maxTouchPoints ?? 0) > 0;
   return !coarsePointer && !hasTouch;
+}
+
+/**
+ * 소형 뷰파인더 + 거리 힌트
+ * 박스를 화면의 22% 너비로 작게 유지해 사용자가 자연스럽게 폰을 멀리 잡도록 유도한다.
+ * 모든 터치 이벤트는 통과(pointer-events-none).
+ */
+function ViewfinderOverlay() {
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-[45] flex flex-col items-center justify-center gap-2"
+      aria-hidden
+    >
+      <div
+        className="relative rounded-lg border-2 border-white/70"
+        style={{ width: "22vw", aspectRatio: "1 / 1" }}
+      >
+        {/* 모서리 강조선 */}
+        <span className="absolute -left-px -top-px h-3 w-3 rounded-tl-lg border-l-2 border-t-2 border-emerald-400" />
+        <span className="absolute -right-px -top-px h-3 w-3 rounded-tr-lg border-r-2 border-t-2 border-emerald-400" />
+        <span className="absolute -bottom-px -left-px h-3 w-3 rounded-bl-lg border-b-2 border-l-2 border-emerald-400" />
+        <span className="absolute -bottom-px -right-px h-3 w-3 rounded-br-lg border-b-2 border-r-2 border-emerald-400" />
+      </div>
+      <p className="rounded-full bg-black/50 px-3 py-1 text-[11px] font-medium tracking-wide text-white/80 backdrop-blur-sm">
+        거리를 조금 띄워주세요
+      </p>
+    </div>
+  );
 }
 
 const shellStyle: CSSProperties = {
@@ -200,6 +236,13 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           fps: 12,
         };
 
+        /** FHD 이상 고해상도 요청 → 디코더가 더 선명한 픽셀을 받아 MFD 한계를 일부 완충 */
+        const highResConstraints: MediaTrackConstraints = {
+          facingMode: "environment",
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
+        };
+
         if (backCamera?.id) {
           await scanner.start(
             backCamera.id,
@@ -209,17 +252,42 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           );
         } else {
           await scanner.start(
-            { facingMode: "environment" },
-            {
-              ...scanConfig,
-              videoConstraints: { facingMode: "environment" },
-            },
+            highResConstraints,
+            scanConfig,
             handleDecoded,
             () => {}
           );
         }
 
-        if (!cancelled) setMode("camera");
+        if (!cancelled) {
+          setMode("camera");
+
+          /** 스트림 안정화 후 디지털 줌 적용 (지원 기기만) */
+          window.setTimeout(() => {
+            try {
+              const videoEl = document.querySelector(
+                `#${READER_ID} video`
+              ) as HTMLVideoElement | null;
+              if (!videoEl?.srcObject) return;
+
+              const stream = videoEl.srcObject as MediaStream;
+              const track = stream.getVideoTracks()[0];
+              if (!track) return;
+
+              const capabilities =
+                track.getCapabilities() as ExtendedMediaTrackCapabilities;
+              if (capabilities?.zoom) {
+                const targetZoom = Math.min(2.0, capabilities.zoom.max);
+                const constraintSet: ExtendedMediaTrackConstraintSet = {
+                  zoom: targetZoom,
+                };
+                void track.applyConstraints({ advanced: [constraintSet] });
+              }
+            } catch {
+              /* 미지원 기기에서 조용히 무시 */
+            }
+          }, 1000);
+        }
       } catch {
         if (cancelled) return;
         try {
@@ -309,6 +377,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                     id={READER_ID}
                     className="relative z-10 h-full min-h-[40dvh] w-full"
                   />
+                  {mode === "camera" && <ViewfinderOverlay />}
                 </div>
               )}
 
