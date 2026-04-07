@@ -12,14 +12,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import {
-  SESSION_STORAGE_PREFIX,
-  deleteSessionKey,
-  listSessionStorageKeys,
-  readSessionRaw,
-  useScannerStore,
-  writeSessionRaw,
-} from "@/store/useScannerStore";
+import { useScannerStore } from "@/store/useScannerStore";
 
 /** html5-qrcode 가 시각·비디오를 붙이는 요소 (요구사항 id) */
 const READER_ID = "reader";
@@ -39,20 +32,6 @@ function randomDigits(): string {
   ).join("");
 }
 
-function formatSessionKeyLabel(key: string): string {
-  const iso = key.slice(SESSION_STORAGE_PREFIX.length);
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return key;
-  return d.toLocaleString("ko-KR", {
-    dateStyle: "medium",
-    timeStyle: "medium",
-  });
-}
-
-function lineCount(text: string): number {
-  return text.split("\n").filter((l) => l.trim().length > 0).length;
-}
-
 /** 저격 스코프: 반투명 마스크 + 가는 레이저(터치는 모두 통과) */
 function SniperLaserOverlay() {
   return (
@@ -67,120 +46,6 @@ function SniperLaserOverlay() {
   );
 }
 
-/** 스캔 줄만 추려 줄바꿈으로 연결한 플레인 텍스트 */
-function toClipboardPlainText(raw: string): string {
-  return raw
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-    .join("\n");
-}
-
-/** Chrome·Safari: Secure Context에서 Clipboard API 우선, 실패 시 사용자 제스처 내 execCommand 폴백 */
-function legacyExecCommandCopy(text: string): void {
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.setAttribute("readonly", "");
-  ta.style.cssText =
-    "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;padding:0;border:0;margin:0;";
-  document.body.appendChild(ta);
-  ta.focus();
-  const len = text.length;
-  try {
-    if (typeof ta.setSelectionRange === "function") {
-      ta.setSelectionRange(0, len);
-    } else {
-      ta.select();
-    }
-    const ok = document.execCommand("copy");
-    if (!ok) throw new Error("execCommand copy returned false");
-  } finally {
-    document.body.removeChild(ta);
-  }
-}
-
-async function writeTextToClipboard(text: string): Promise<void> {
-  if (typeof window === "undefined") throw new Error("no window");
-
-  const hasAsyncClipboard =
-    typeof navigator !== "undefined" &&
-    Boolean(navigator.clipboard?.writeText) &&
-    window.isSecureContext;
-
-  if (hasAsyncClipboard) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return;
-    } catch {
-      /* Clipboard API 거부·일시 오류 → 폴백 */
-    }
-  }
-
-  legacyExecCommandCopy(text);
-}
-
-function CopyBarcodeListButton({
-  sourceText,
-  disabled,
-}: {
-  sourceText: string;
-  disabled: boolean;
-}) {
-  const [copyDone, setCopyDone] = useState(false);
-  const resetTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (resetTimerRef.current !== null) {
-        clearTimeout(resetTimerRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopy = async () => {
-    if (disabled) return;
-    const plain = toClipboardPlainText(sourceText);
-    if (!plain) return;
-
-    try {
-      await writeTextToClipboard(plain);
-      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate([50]);
-      }
-      if (resetTimerRef.current !== null) {
-        clearTimeout(resetTimerRef.current);
-      }
-      setCopyDone(true);
-      const id = window.setTimeout(() => {
-        setCopyDone(false);
-        resetTimerRef.current = null;
-      }, 2000);
-      resetTimerRef.current = id;
-    } catch {
-      window.alert(
-        "클립보드에 복사하지 못했습니다.\n\n" +
-          "• Chrome: 주소창 오른쪽 자물쇠/사이트 정보에서 권한을 확인하거나, HTTPS·localhost에서 열었는지 확인하세요.\n" +
-          "• Safari: 주소창 aA/자물쇠에서 붙여넣기·클립보드 권한을 허용해 보세요.\n" +
-          "• 텍스트 상자에서 길게 눌러 전체 선택 후 복사할 수도 있습니다."
-      );
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => void handleCopy()}
-      className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold tracking-tight shadow-sm transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
-        copyDone
-          ? "bg-emerald-600 text-white shadow-emerald-900/35"
-          : "border border-zinc-500/60 bg-zinc-800/95 text-zinc-100 active:bg-zinc-700/95"
-      }`}
-    >
-      {copyDone ? "복사 완료! ✅" : "목록 복사"}
-    </button>
-  );
-}
 
 const shellStyle: CSSProperties = {
   minHeight: "100dvh",
@@ -198,35 +63,16 @@ export default function Scanner() {
   );
   const lastCapturedCode = useScannerStore((s) => s.lastCapturedCode);
   const lastCaptureAt = useScannerStore((s) => s.lastCaptureAt);
-  const sessionsRevision = useScannerStore((s) => s.sessionsRevision);
-  const bumpSessionsRevision = useScannerStore((s) => s.bumpSessionsRevision);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  const [mounted, setMounted] = useState(false);
   const [mode, setMode] = useState<"idle" | "loading" | "camera" | "mock">(
     "idle"
   );
   const [flashKey, setFlashKey] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const [sessionKeys, setSessionKeys] = useState<string[]>([]);
-  const [historyKey, setHistoryKey] = useState<string | null>(null);
-  const [historyText, setHistoryText] = useState("");
-  const [activeTab, setActiveTab] = useState<"work" | "history">("work");
-  const [historyView, setHistoryView] = useState<"list" | "detail">("list");
-
   const inSession = activeSessionKey !== null;
-  const isWorkTab = activeTab === "work";
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    setSessionKeys(listSessionStorageKeys());
-  }, [mounted, sessionsRevision]);
 
   const triggerFeedback = useCallback((digits: string) => {
     setFlashKey(Date.now());
@@ -254,7 +100,7 @@ export default function Scanner() {
   }, [appendDigitScanToActiveSession, triggerFeedback]);
 
   useEffect(() => {
-    const shouldRunCamera = activeSessionKey !== null && isWorkTab;
+    const shouldRunCamera = activeSessionKey !== null;
     if (!shouldRunCamera) {
       setMode("idle");
       const instance = scannerRef.current;
@@ -376,130 +222,16 @@ export default function Scanner() {
         }
       });
     };
-  }, [activeSessionKey, handleDecoded, isWorkTab]);
+  }, [activeSessionKey, handleDecoded]);
 
-  const showReader =
-    inSession && isWorkTab && !isLikelyDesktop() && mode !== "mock";
-  const showMockPanel = inSession && isWorkTab && mode === "mock";
+  const showReader = inSession && !isLikelyDesktop() && mode !== "mock";
+  const showMockPanel = inSession && mode === "mock";
   const showCameraLoading =
-    inSession && isWorkTab && !isLikelyDesktop() && mode === "loading";
-
-  const recentTailLines = useMemo(() => {
-    const lines = liveSessionText.split("\n").filter((l) => l.length > 0);
-    return lines.slice(-12);
-  }, [liveSessionText]);
-
-  const openHistory = useCallback((key: string) => {
-    setHistoryKey(key);
-    setHistoryText(readSessionRaw(key));
-    setHistoryView("detail");
-  }, []);
-
-  const onHistoryTextChange = useCallback(
-    (text: string) => {
-      if (!historyKey) return;
-      setHistoryText(text);
-      writeSessionRaw(historyKey, text);
-    },
-    [historyKey]
-  );
-
-  const handleDeleteHistory = useCallback(() => {
-    if (!historyKey) return;
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("이 점검 기록을 삭제할까요?")
-    ) {
-      return;
-    }
-    deleteSessionKey(historyKey);
-    setHistoryKey(null);
-    setHistoryText("");
-    bumpSessionsRevision();
-    setHistoryView("list");
-  }, [historyKey, bumpSessionsRevision]);
+    inSession && !isLikelyDesktop() && mode === "loading";
 
   const handleStartInventory = useCallback(() => {
-    setHistoryKey(null);
-    setHistoryText("");
     beginInventorySession();
   }, [beginInventorySession]);
- 
-  const historyScreen = (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
-      <h2 className="text-lg font-semibold tracking-tight text-white">
-        점검 기록
-      </h2>
-      <p className="mt-1 text-sm text-zinc-500">
-        저장된 점검을 열어 수정, 삭제, 복사할 수 있습니다.
-      </p>
-      {historyView === "list" && (
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto pb-24">
-          {!mounted ? (
-            <p className="text-sm text-zinc-500">불러오는 중…</p>
-          ) : sessionKeys.length === 0 ? (
-            <p className="text-sm text-zinc-500">저장된 점검 기록이 없습니다.</p>
-          ) : (
-            <ul className="divide-y divide-zinc-800 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/40">
-              {sessionKeys.map((key) => {
-                const raw = readSessionRaw(key);
-                const n = lineCount(raw);
-                return (
-                  <li key={key}>
-                    <button
-                      type="button"
-                      onClick={() => openHistory(key)}
-                      className="flex w-full flex-col items-start gap-1 px-4 py-3 text-left active:bg-zinc-800/80"
-                    >
-                      <span className="text-base font-semibold text-zinc-100">
-                        {formatSessionKeyLabel(key)}
-                      </span>
-                      <span className="text-sm text-zinc-500">스캔 {n}건</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
-      {historyView === "detail" && historyKey && (
-        <div className="mt-4 flex min-h-0 flex-1 flex-col pb-24">
-          <button
-            type="button"
-            onClick={() => setHistoryView("list")}
-            className="w-fit text-sm font-medium text-zinc-300 active:text-white"
-          >
-            ← 목록으로
-          </button>
-          <h3 className="mt-3 text-lg font-semibold text-white">
-            {formatSessionKeyLabel(historyKey)}
-          </h3>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <CopyBarcodeListButton
-              sourceText={historyText}
-              disabled={lineCount(historyText) === 0}
-            />
-            <button
-              type="button"
-              onClick={handleDeleteHistory}
-              className="rounded-full border border-red-900/60 bg-red-950/40 px-4 py-2 text-sm font-semibold text-red-100 active:bg-red-950/70"
-            >
-              삭제
-            </button>
-          </div>
-          <textarea
-            value={historyText}
-            onChange={(e) => onHistoryTextChange(e.target.value)}
-            spellCheck={false}
-            autoComplete="off"
-            autoCorrect="off"
-            className="mt-3 h-full min-h-[38dvh] w-full resize-none rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 font-mono text-sm leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/30 focus:ring-2"
-          />
-        </div>
-      )}
-    </div>
-  );
 
   return (
     <div
@@ -516,7 +248,7 @@ export default function Scanner() {
       )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {activeTab === "work" && !inSession && (
+        {!inSession && (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
             <h1 className="text-2xl font-bold tracking-tight text-white">
               빛나래 장서점검
@@ -537,7 +269,7 @@ export default function Scanner() {
           </div>
         )}
 
-        {activeTab === "work" && inSession && (
+        {inSession && (
           <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
             <header className="relative z-50 flex shrink-0 items-center justify-end gap-2 border-b border-zinc-800/80 bg-zinc-950/95 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md">
               <button
@@ -550,28 +282,8 @@ export default function Scanner() {
             </header>
 
             <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto">
-              <div className="relative z-30 shrink-0 px-3 pt-3">
-                {lastCapturedCode ? (
-                  <div
-                    key={lastCaptureAt}
-                    className="scan-live-code-hit w-full rounded-2xl border border-emerald-500/45 bg-emerald-950/90 px-3 py-2 text-center shadow-lg shadow-emerald-950/40"
-                  >
-                    <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-emerald-400/90">
-                      방금 인식
-                    </p>
-                    <p className="mt-0.5 font-mono text-2xl font-bold tabular-nums text-emerald-50">
-                      {lastCapturedCode}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-center text-sm text-zinc-500">
-                    카메라로 바코드를 비추면 숫자가 여기 표시됩니다.
-                  </div>
-                )}
-              </div>
-
               {showReader && (
-                <div className="relative z-20 w-full min-w-[60%] min-h-[60dvh] shrink-0">
+                <div className="relative z-20 w-full min-w-[60%] min-h-[72dvh] shrink-0">
                   {showCameraLoading && (
                     <div className="pointer-events-none absolute inset-0 z-[50] flex items-center justify-center bg-zinc-950/85 backdrop-blur-sm">
                       <p className="text-sm text-zinc-400">카메라 준비 중…</p>
@@ -579,7 +291,7 @@ export default function Scanner() {
                   )}
                   <div
                     id={READER_ID}
-                    className="relative z-10 h-full min-h-[60dvh] w-full"
+                    className="relative z-10 h-full min-h-[72dvh] w-full"
                   />
                   {mode === "camera" && <SniperLaserOverlay />}
                 </div>
@@ -605,34 +317,9 @@ export default function Scanner() {
                 </div>
               )}
 
-              <div className="relative z-30 shrink-0 border-t border-zinc-800/80 bg-zinc-950 px-3 py-2">
-                <p className="mb-1 text-[0.65rem] font-medium uppercase tracking-wider text-zinc-500">
-                  이번 세션 스캔 목록
-                </p>
-                {recentTailLines.length === 0 ? (
-                  <p className="py-2 text-sm text-zinc-600">아직 스캔 없음</p>
-                ) : (
-                  <ul className="max-h-28 overflow-y-auto font-mono text-sm leading-snug text-zinc-200 tabular-nums">
-                    {recentTailLines.map((line, i) => (
-                      <li
-                        key={`${line}-${i}`}
-                        className={
-                          line === lastCapturedCode
-                            ? "font-semibold text-emerald-300"
-                            : ""
-                        }
-                      >
-                        {line}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
             </div>
           </div>
         )}
-
-        {activeTab === "history" && historyScreen}
       </div>
 
       {toast && (
@@ -644,17 +331,11 @@ export default function Scanner() {
         </div>
       )}
 
-      {inSession && activeTab === "work" && (
+      {inSession && (
         <div className="relative z-40 shrink-0 border-t border-zinc-800 bg-zinc-950/98 px-3 py-2">
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-              이번 점검 누적 (즉시 저장)
-            </label>
-            <CopyBarcodeListButton
-              sourceText={liveSessionText}
-              disabled={lineCount(liveSessionText) === 0}
-            />
-          </div>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
+            점검 목록
+          </label>
           <textarea
             value={liveSessionText}
             onChange={(e) => setLiveSessionText(e.target.value)}
@@ -665,32 +346,6 @@ export default function Scanner() {
           />
         </div>
       )}
-      <nav className="relative z-[100] shrink-0 border-t border-zinc-800 bg-zinc-950/95 px-2 py-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md">
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab("work")}
-            className={`rounded-xl px-3 py-3 text-sm font-semibold ${
-              activeTab === "work"
-                ? "bg-emerald-600 text-white"
-                : "bg-zinc-900 text-zinc-300 active:bg-zinc-800"
-            }`}
-          >
-            장서점검업무
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("history")}
-            className={`rounded-xl px-3 py-3 text-sm font-semibold ${
-              activeTab === "history"
-                ? "bg-emerald-600 text-white"
-                : "bg-zinc-900 text-zinc-300 active:bg-zinc-800"
-            }`}
-          >
-            점검 기록
-          </button>
-        </div>
-      </nav>
     </div>
   );
 }
