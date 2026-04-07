@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: "#0f766e",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -22,20 +22,18 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "장서점검 스캐너",
-  description: "고속 바코드 장서점검 오프라인 PWA",
+  title: "책찍! — 빠른 장서점검",
+  description:
+    "바코드만 스윽— 줄줄이 쌓이는 장서점검. 홈 화면에 두고 오프라인에서도 쓰세요.",
   manifest: "/manifest.json",
-  applicationName: "장서점검 스캐너",
+  applicationName: "책찍!",
   appleWebApp: {
     capable: true,
-    title: "장서점검 스캐너",
+    title: "책찍!",
     statusBarStyle: "black-translucent",
   },
   formatDetection: {
     telephone: false,
-  },
-  icons: {
-    apple: { url: "/icons/icon-192x192.png" },
   },
 };
 

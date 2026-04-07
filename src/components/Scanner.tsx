@@ -501,12 +501,12 @@ export default function Scanner() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {!inSession && (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <h1 className="text-lg font-semibold tracking-tight text-white">
-              장서점검
+            <h1 className="text-2xl font-bold tracking-tight text-white">
+              책찍!
             </h1>
-            <p className="mt-1 text-sm text-zinc-500">
-              「장서점검 시작」으로 세션을 열면 카메라가 바로 켜집니다. 과거
-              기록은 화면 맨 아래에서 확인하세요.
+            <p className="mt-1 text-sm leading-relaxed text-zinc-500">
+              바코드만 스윽— 줄줄이 쌓이는 장서점검. 「책찍! 시작」이면 카메라가
+              바로 열립니다. 과거 기록은 맨 아래에서 볼 수 있어요.
             </p>
             {mounted && sessionKeys.length > 0 && (
               <p className="mt-3 rounded-lg border border-emerald-900/40 bg-emerald-950/25 px-3 py-2 text-sm text-emerald-100/90">
@@ -518,9 +518,9 @@ export default function Scanner() {
               <button
                 type="button"
                 onClick={handleStartInventory}
-                className="flex h-16 w-full max-w-sm items-center justify-center rounded-3xl bg-emerald-600 text-lg font-semibold text-white shadow-xl shadow-emerald-950/40 active:bg-emerald-700"
+                className="flex h-16 w-full max-w-sm items-center justify-center rounded-3xl bg-gradient-to-b from-emerald-500 to-emerald-600 text-lg font-semibold text-white shadow-xl shadow-emerald-950/45 ring-1 ring-white/10 active:from-emerald-600 active:to-emerald-700"
               >
-                장서점검 시작
+                책찍! 시작
               </button>
             </div>
           </div>
