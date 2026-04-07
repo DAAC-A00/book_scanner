@@ -243,7 +243,7 @@ export default function Scanner() {
 
             <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto">
               {showReader && (
-                <div className="relative z-20 w-full min-w-[60%] min-h-[72dvh] shrink-0">
+                <div className="relative z-20 w-full min-w-[60%] min-h-[40dvh] shrink-0">
                   {showCameraLoading && (
                     <div className="pointer-events-none absolute inset-0 z-[50] flex items-center justify-center bg-zinc-950/85 backdrop-blur-sm">
                       <p className="text-sm text-zinc-400">카메라 준비 중…</p>
@@ -251,7 +251,7 @@ export default function Scanner() {
                   )}
                   <div
                     id={READER_ID}
-                    className="relative z-10 h-full min-h-[72dvh] w-full"
+                    className="relative z-10 h-full min-h-[40dvh] w-full"
                   />
                   {mode === "camera" && <SniperLaserOverlay />}
                 </div>
@@ -296,7 +296,7 @@ export default function Scanner() {
             spellCheck={false}
             autoComplete="off"
             autoCorrect="off"
-            className="min-h-[5.5rem] w-full resize-y rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 tabular-nums outline-none ring-emerald-500/30 focus:ring-2"
+            className="min-h-[12rem] max-h-[45dvh] w-full resize-y rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-3 font-mono text-base leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/30 focus:ring-2"
           />
         </div>
       )}
