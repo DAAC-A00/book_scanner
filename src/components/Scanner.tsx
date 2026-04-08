@@ -13,9 +13,7 @@ import {
 } from "react";
 import AppHeader from "@/components/AppHeader";
 import ClipboardIcon from "@/components/ClipboardIcon";
-import InstagramIcon from "@/components/InstagramIcon";
 import { useScanBeeps } from "@/hooks/useScanBeeps";
-import { INSTAGRAM_GARAM_LIB_URL } from "@/lib/brand";
 import { countSessionLines, toPlainSessionText } from "@/lib/sessionText";
 import { useScannerStore } from "@/store/useScannerStore";
 
@@ -427,40 +425,40 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       )}
 
       {inSession && (
-        <div className="relative z-40 shrink-0 border-t border-amber-500/10 bg-zinc-950/98 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
-          <div className="mb-2 flex gap-2">
+        <div className="relative z-40 shrink-0 border-t border-zinc-800/90 bg-zinc-950 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+            <div className="min-w-0">
+              <label
+                htmlFor="scan-session-textarea"
+                className="block text-xs font-semibold uppercase tracking-wide text-zinc-400"
+              >
+                이번 점검 기록
+              </label>
+              <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+                찍은 번호가 아래에 쌓여요. 필요하면 직접 고쳐도 돼요.
+              </p>
+            </div>
             <button
               type="button"
               onClick={() => void copyCurrentSession()}
-              className={`flex min-h-14 min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl px-4 text-base font-semibold transition active:scale-[0.99] ${
+              className={`flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl px-4 text-base font-semibold transition active:scale-[0.99] sm:w-auto sm:min-w-[9.5rem] ${
                 sessionCopyDone
                   ? "bg-emerald-600 text-white"
-                  : "border border-emerald-600/50 bg-emerald-950/50 text-emerald-100 active:bg-emerald-950/80"
+                  : "border border-emerald-600/55 bg-emerald-950/60 text-emerald-100 active:bg-emerald-950/85"
               }`}
             >
               <ClipboardIcon className="h-5 w-5 shrink-0 opacity-90" />
-              {sessionCopyDone ? "복사 완료" : "클립보드 복사"}
+              {sessionCopyDone ? "복사됨" : "전체 복사"}
             </button>
-            <a
-              href={INSTAGRAM_GARAM_LIB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex min-h-14 min-w-14 shrink-0 items-center justify-center rounded-2xl border border-pink-500/35 bg-zinc-900 text-pink-300 active:bg-zinc-800"
-              aria-label="가람고 도서관 인스타그램 (새 창)"
-            >
-              <InstagramIcon className="h-7 w-7" />
-            </a>
           </div>
-          <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
-            이번 점검에 모은 번호
-          </label>
           <textarea
+            id="scan-session-textarea"
             value={liveSessionText}
             onChange={(e) => setLiveSessionText(e.target.value)}
             spellCheck={false}
             autoComplete="off"
             autoCorrect="off"
-            className="min-h-[12rem] max-h-[45dvh] w-full resize-y rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-3 font-mono text-base leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/30 focus:ring-2"
+            className="min-h-[13rem] max-h-[45dvh] w-full resize-y rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-3 font-mono text-base leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/35 focus:ring-2"
           />
         </div>
       )}
