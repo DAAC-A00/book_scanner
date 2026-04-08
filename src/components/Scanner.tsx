@@ -94,8 +94,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const [flashKey, setFlashKey] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [cameraRetryToken, setCameraRetryToken] = useState(0);
-  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
-  const [permissionHint, setPermissionHint] = useState<string | null>(null);
   const [sessionCopyDone, setSessionCopyDone] = useState(false);
   const sessionCopyTimerRef = useRef<number | null>(null);
 
@@ -173,67 +171,22 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     }
   }, [liveSessionText]);
 
-  const handleRequestCameraPermission = useCallback(async () => {
-    if (isRequestingPermission) return;
-    if (
-      typeof navigator === "undefined" ||
-      !navigator.mediaDevices?.getUserMedia
-    ) {
-      setToast("이 기기에서는 카메라 권한 요청을 지원하지 않습니다.");
-      window.setTimeout(() => setToast(null), 1200);
-      setPermissionHint(
-        "이 기기/브라우저에서는 카메라 권한 요청이 지원되지 않습니다."
-      );
-      return;
-    }
-
-    setIsRequestingPermission(true);
-    setPermissionHint("카메라 권한을 확인하는 중입니다...");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      stream.getTracks().forEach((track) => track.stop());
-      setToast("카메라 권한이 확인되었습니다. 스캔을 다시 시작합니다.");
-      window.setTimeout(() => setToast(null), 1200);
-      setPermissionHint("권한 허용이 확인되었습니다. 카메라를 다시 시작합니다.");
-      setCameraRetryToken((prev) => prev + 1);
-    } catch (error) {
-      const deniedByBrowser =
-        typeof error === "object" &&
-        error !== null &&
-        "name" in error &&
-        (error as DOMException).name === "NotAllowedError";
-      setToast("카메라 권한이 필요합니다. 브라우저 설정에서 허용해 주세요.");
-      window.setTimeout(() => setToast(null), 1400);
-      setPermissionHint(
-        deniedByBrowser
-          ? "권한이 차단되어 재요청 팝업이 뜨지 않을 수 있습니다. 주소창의 사이트 설정에서 카메라를 '허용'으로 변경한 뒤 아래 버튼을 다시 눌러주세요."
-          : "카메라 권한을 확인하지 못했습니다. 설정에서 허용 후 다시 시도해 주세요."
-      );
-    } finally {
-      setIsRequestingPermission(false);
-    }
-  }, [isRequestingPermission]);
+  const retryCamera = useCallback(() => {
+    setCameraRetryToken((prev) => prev + 1);
+  }, []);
 
   useEffect(() => {
     if (!inSession || mode !== "mock" || isLikelyDesktop()) return;
 
-    const recheck = () => {
-      void handleRequestCameraPermission();
-    };
-
     const onVisibilityChange = () => {
-      if (!document.hidden) recheck();
+      if (!document.hidden) setCameraRetryToken((prev) => prev + 1);
     };
 
-    window.addEventListener("focus", recheck);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
-      window.removeEventListener("focus", recheck);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [handleRequestCameraPermission, inSession, mode]);
+  }, [inSession, mode]);
 
   useEffect(() => {
     const shouldRunCamera = activeSessionKey !== null;
@@ -264,6 +217,10 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     let cancelled = false;
     setMode("loading");
 
+    // 이전 시도에서 남은 DOM 잔재 제거 후 새 인스턴스 생성
+    const readerEl = document.getElementById(READER_ID);
+    if (readerEl) readerEl.innerHTML = "";
+
     const scanner = new Html5Qrcode(READER_ID, {
       verbose: false,
       formatsToSupport: [
@@ -280,49 +237,21 @@ export default function Scanner({ onExitSession }: ScannerProps) {
 
     const start = async () => {
       try {
-        const cameras = await Html5Qrcode.getCameras();
-        if (cancelled) return;
+        // getCameras() 호출 없이 바로 후면 카메라로 시작
+        // (getCameras()는 내부적으로 getUserMedia를 중복 호출해 권한 충돌 유발)
+        const scanConfig = { fps: 12 };
+        const envConstraints: MediaTrackConstraints = {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920, min: 640 },
+          height: { ideal: 1080, min: 480 },
+        };
 
-        if (cameras.length === 0) {
-          try {
-            scanner.clear();
-          } catch {
-            /* ignore */
-          }
-          scannerRef.current = null;
-          setMode("mock");
-          return;
-        }
-
-        const backCamera = cameras.find((c) =>
-          /back|rear|environment|wide/i.test(c.label)
+        await scanner.start(
+          envConstraints,
+          scanConfig,
+          handleDecoded,
+          () => {}
         );
-
-        const scanConfig = {
-          fps: 12,
-        };
-
-        const highResConstraints: MediaTrackConstraints = {
-          facingMode: "environment",
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 },
-        };
-
-        if (backCamera?.id) {
-          await scanner.start(
-            backCamera.id,
-            scanConfig,
-            handleDecoded,
-            () => {}
-          );
-        } else {
-          await scanner.start(
-            highResConstraints,
-            scanConfig,
-            handleDecoded,
-            () => {}
-          );
-        }
 
         if (!cancelled) {
           setMode("camera");
@@ -366,9 +295,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
         }
         scannerRef.current = null;
         setMode("mock");
-        setPermissionHint(
-          "카메라에 접근할 수 없습니다. 권한을 허용한 뒤 아래 버튼으로 다시 연결해 주세요."
-        );
       }
     };
 
@@ -497,35 +423,26 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                 <div className="relative z-20 flex min-h-[40dvh] flex-col items-center justify-center px-4 py-6">
                   <div className="w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-xl">
                     <h2 className="text-center text-lg font-semibold text-white">
-                      카메라 접근을 허용해주세요
+                      카메라를 켤 수 없어요
                     </h2>
                     <p className="mt-3 text-center text-sm leading-relaxed text-zinc-400">
-                      브라우저의 카메라 권한이 차단되어 스캔을 시작할 수 없습니다.
-                      권한을 허용한 뒤 다시 시도해 주세요.
+                      브라우저 주소창 왼쪽의 잠금(🔒) 아이콘을 눌러 카메라
+                      권한을 <strong className="text-zinc-200">허용</strong>으로
+                      바꾼 뒤, 아래 버튼을 눌러 주세요.
                     </p>
-                    {permissionHint && (
-                      <p className="mt-3 rounded-lg border border-zinc-700/80 bg-zinc-950/70 px-3 py-2 text-xs leading-relaxed text-zinc-300">
-                        {permissionHint}
-                      </p>
-                    )}
-                    {!isLikelyDesktop() && (
-                      <div className="mt-5 grid grid-cols-1 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleRequestCameraPermission()}
-                          disabled={isRequestingPermission}
-                          className="min-h-14 w-full rounded-2xl border border-emerald-700/70 bg-emerald-900/70 px-4 py-3 text-base font-semibold text-emerald-100 transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isRequestingPermission
-                            ? "카메라 권한 확인 중..."
-                            : "카메라 접근 허용하기"}
-                        </button>
-                        <p className="text-center text-xs text-zinc-500">
-                          설정에서 권한을 허용한 뒤 이 화면으로 돌아오면 자동으로
-                          다시 확인합니다.
-                        </p>
-                      </div>
-                    )}
+                    <p className="mt-2 text-center text-xs text-zinc-500">
+                      설정을 마치고 이 화면으로 돌아오면 자동으로 다시
+                      연결합니다.
+                    </p>
+                    <div className="mt-5">
+                      <button
+                        type="button"
+                        onClick={retryCamera}
+                        className="min-h-14 w-full rounded-2xl border border-emerald-700/70 bg-emerald-900/70 px-4 py-3 text-base font-semibold text-emerald-100 transition active:scale-[0.99]"
+                      >
+                        카메라 다시 연결하기
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
