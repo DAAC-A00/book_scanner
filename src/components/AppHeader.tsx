@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-const SERVICE_TITLE = "빛나래 고속 장서점검";
+const SERVICE_TITLE = "빛나래 장서점검";
 
 type AppHeaderProps = {
   /** 점검 화면 등 우측 액션(예: 점검 중단) */

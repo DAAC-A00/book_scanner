@@ -22,14 +22,14 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "빛나래 고속 장서점검",
+  title: "빛나래 장서점검",
   description:
     "동국대학교사범대학부속가람고등학교 도서부 빛나래 장서점검. 바코드(숫자)를 찍을 때마다 이 기기에 즉시 저장되며, 목록·점검 화면에서 클립보드로 한 번에 복사해 메신저로 보고할 수 있습니다.",
   manifest: "/manifest.json",
-  applicationName: "빛나래 고속 장서점검",
+  applicationName: "빛나래 장서점검",
   appleWebApp: {
     capable: true,
-    title: "빛나래 고속 장서점검",
+    title: "빛나래 장서점검",
     statusBarStyle: "black-translucent",
   },
   formatDetection: {
