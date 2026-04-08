@@ -1,10 +1,6 @@
 "use client";
 
 import {
-  Html5Qrcode,
-  Html5QrcodeSupportedFormats,
-} from "html5-qrcode";
-import {
   useCallback,
   useEffect,
   useRef,
@@ -16,20 +12,35 @@ import { useScanBeeps } from "@/hooks/useScanBeeps";
 import { countSessionLines } from "@/lib/sessionText";
 import { useScannerStore } from "@/store/useScannerStore";
 
-/** html5-qrcode 가 시각·비디오를 붙이는 요소 (요구사항 id) */
-const READER_ID = "reader";
 const DIGIT_ONLY = /^\d+$/;
 /** 카메라가 같은 프레임에서 비숫자를 연속 디코딩할 때 비프 스팸 방지 */
 const INVALID_BEEP_COOLDOWN_MS = 900;
+const SCAN_INTERVAL_MS = 100;
+const UNSUPPORTED_MESSAGE =
+  "이 브라우저는 네이티브 바코드 스캔을 지원하지 않습니다. Safari 17 이상이나 최신 Chrome을 사용해주세요.";
+const CAMERA_ERROR_TITLE = "카메라를 켤 수 없어요";
+const CAMERA_ERROR_HINT =
+  "카메라 엑세스 허용 후 이 화면으로 돌아오면 자동으로 다시 연결합니다.";
+const BARCODE_FORMATS = [
+  "ean_13",
+  "ean_8",
+  "upc_a",
+  "upc_e",
+  "code_128",
+  "code_39",
+] as const;
 
-
-function isLikelyDesktop(): boolean {
-  if (typeof window === "undefined") return true;
-  const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
-  const hasTouch =
-    "ontouchstart" in window || (navigator.maxTouchPoints ?? 0) > 0;
-  return !coarsePointer && !hasTouch;
-}
+type BarcodeFormatValue = (typeof BARCODE_FORMATS)[number];
+type DetectedBarcodeLike = { rawValue?: string | null };
+type BarcodeDetectorLike = {
+  detect: (source: ImageBitmapSource) => Promise<DetectedBarcodeLike[]>;
+};
+type BarcodeDetectorLikeConstructor = new (options?: {
+  formats?: BarcodeFormatValue[];
+}) => BarcodeDetectorLike;
+type WindowWithBarcodeDetector = Window & {
+  BarcodeDetector?: BarcodeDetectorLikeConstructor;
+};
 
 
 const shellStyle: CSSProperties = {
@@ -51,7 +62,11 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const lastCapturedCode = useScannerStore((s) => s.lastCapturedCode);
   const lastCaptureAt = useScannerStore((s) => s.lastCaptureAt);
 
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const detectorRef = useRef<BarcodeDetectorLike | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanTimerRef = useRef<number | null>(null);
+  const detectBusyRef = useRef(false);
   const lastInvalidBeepAt = useRef(0);
 
   const { playSuccess, playFailure, prime } = useScanBeeps();
@@ -59,6 +74,8 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const [mode, setMode] = useState<"idle" | "loading" | "camera" | "mock">(
     "idle"
   );
+  const [mockTitle, setMockTitle] = useState(CAMERA_ERROR_TITLE);
+  const [mockMessage, setMockMessage] = useState(CAMERA_ERROR_HINT);
   const [flashKey, setFlashKey] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [cameraRetryToken, setCameraRetryToken] = useState(0);
@@ -107,8 +124,68 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     setCameraRetryToken((prev) => prev + 1);
   }, []);
 
+  const clearScanTimer = useCallback(() => {
+    if (scanTimerRef.current === null) return;
+    window.clearTimeout(scanTimerRef.current);
+    scanTimerRef.current = null;
+  }, []);
+
+  const stopCameraStream = useCallback(() => {
+    const directVideo = videoRef.current;
+    const srcObject =
+      directVideo?.srcObject instanceof MediaStream ? directVideo.srcObject : null;
+    const stream = srcObject ?? streamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    if (directVideo) {
+      directVideo.srcObject = null;
+    }
+    streamRef.current = null;
+  }, []);
+
+  const scheduleNextScan = useCallback(
+    (run: () => void) => {
+      clearScanTimer();
+      scanTimerRef.current = window.setTimeout(run, SCAN_INTERVAL_MS);
+    },
+    [clearScanTimer]
+  );
+
+  const startScanLoop = useCallback(() => {
+    const run = async () => {
+      const video = videoRef.current;
+      const detector = detectorRef.current;
+      if (!video || !detector) return;
+
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        scheduleNextScan(run);
+        return;
+      }
+      if (detectBusyRef.current) {
+        scheduleNextScan(run);
+        return;
+      }
+
+      detectBusyRef.current = true;
+      try {
+        const result = await detector.detect(video);
+        const rawValue = result[0]?.rawValue?.trim();
+        if (rawValue && DIGIT_ONLY.test(rawValue)) {
+          handleDecoded(rawValue);
+        }
+      } catch {
+        /* ignore detection errors */
+      } finally {
+        detectBusyRef.current = false;
+        scheduleNextScan(run);
+      }
+    };
+    scheduleNextScan(run);
+  }, [handleDecoded, scheduleNextScan]);
+
   useEffect(() => {
-    if (!inSession || mode !== "mock" || isLikelyDesktop()) return;
+    if (!inSession || mode !== "mock") return;
 
     const onVisibilityChange = () => {
       if (!document.hidden) setCameraRetryToken((prev) => prev + 1);
@@ -123,100 +200,88 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   useEffect(() => {
     const shouldRunCamera = activeSessionKey !== null;
     if (!shouldRunCamera) {
+      clearScanTimer();
+      detectBusyRef.current = false;
+      detectorRef.current = null;
+      stopCameraStream();
       setMode("idle");
-      const instance = scannerRef.current;
-      scannerRef.current = null;
-      if (instance) {
-        const stopPromise = instance.isScanning
-          ? instance.stop().catch(() => {})
-          : Promise.resolve();
-        void stopPromise.finally(() => {
-          try {
-            instance.clear();
-          } catch {
-            /* ignore */
-          }
-        });
-      }
-      return;
-    }
-
-    if (isLikelyDesktop()) {
-      setMode("mock");
       return;
     }
 
     let cancelled = false;
     setMode("loading");
+    setMockTitle(CAMERA_ERROR_TITLE);
+    setMockMessage(CAMERA_ERROR_HINT);
 
     const start = async () => {
-      // 이전 시도 DOM 잔재 제거 (#reader는 항상 마운트되어 있으므로 안전)
-      try {
-        const readerEl = document.getElementById(READER_ID);
-        if (readerEl) readerEl.innerHTML = "";
-      } catch { /* ignore */ }
-
-      // Html5Qrcode 생성자도 throw 가능 → async 함수 안에서 try/catch로 감쌈
-      let scanner: Html5Qrcode;
-      try {
-        scanner = new Html5Qrcode(READER_ID, {
-          verbose: false,
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.UPC_E,
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.CODE_39,
-            Html5QrcodeSupportedFormats.QR_CODE,
-          ],
-        });
-      } catch {
-        if (!cancelled) setMode("mock");
+      const videoEl = videoRef.current;
+      if (!videoEl) {
+        if (!cancelled) {
+          setMockTitle(CAMERA_ERROR_TITLE);
+          setMockMessage(CAMERA_ERROR_HINT);
+          setMode("mock");
+        }
         return;
       }
-      scannerRef.current = scanner;
+
+      const BarcodeDetectorCtor = (window as WindowWithBarcodeDetector).BarcodeDetector;
+      if (!BarcodeDetectorCtor) {
+        if (!cancelled) {
+          setMockTitle("지원되지 않는 브라우저");
+          setMockMessage(UNSUPPORTED_MESSAGE);
+          setMode("mock");
+        }
+        return;
+      }
 
       try {
-        const scanConfig = { fps: 12 };
-
-        // getCameras()는 iOS Safari에서 카메라 권한 팝업을 띄우는 트리거
-        // 반드시 호출해야 iOS 권한 다이얼로그가 표시됨
-        let cameras: Array<{ id: string; label: string }> = [];
-        try {
-          cameras = await Html5Qrcode.getCameras();
-        } catch {
-          // 권한 거부 또는 API 미지원 → cameras 빈 배열 유지
+        detectorRef.current = new BarcodeDetectorCtor({
+          formats: [...BARCODE_FORMATS],
+        });
+      } catch {
+        if (!cancelled) {
+          setMockTitle("스캔 엔진 초기화 실패");
+          setMockMessage(UNSUPPORTED_MESSAGE);
+          setMode("mock");
         }
-        if (cancelled) return;
+        detectorRef.current = null;
+        return;
+      }
 
-        if (cameras.length === 0) {
-          // 카메라 없음 (권한 거부 등)
-          if (!cancelled) setMode("mock");
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          if (!cancelled) {
+            setMockTitle(CAMERA_ERROR_TITLE);
+            setMockMessage(CAMERA_ERROR_HINT);
+            setMode("mock");
+          }
+          return;
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
           return;
         }
 
-        // facingMode: "environment" 로 시작 — iOS가 주력 1x 후면 렌즈를 자동 선택
-        // 카메라 ID 직접 지정 시 라벨이 빈 문자열로 오면 엉뚱한 렌즈가 선택될 수 있음
-        await scanner.start(
-          { facingMode: "environment" },
-          scanConfig,
-          handleDecoded,
-          () => {}
-        );
+        streamRef.current = stream;
+        videoEl.srcObject = stream;
+        await videoEl.play();
 
-        if (!cancelled) {
-          setMode("camera");
-        }
+        if (cancelled) return;
+        setMode("camera");
       } catch {
         if (cancelled) return;
-        try {
-          if (scanner.isScanning) await scanner.stop();
-        } catch { /* ignore */ }
-        try {
-          scanner.clear();
-        } catch { /* ignore */ }
-        scannerRef.current = null;
+        stopCameraStream();
+        setMockTitle(CAMERA_ERROR_TITLE);
+        setMockMessage(CAMERA_ERROR_HINT);
         setMode("mock");
       }
     };
@@ -225,24 +290,23 @@ export default function Scanner({ onExitSession }: ScannerProps) {
 
     return () => {
       cancelled = true;
-      const instance = scannerRef.current;
-      scannerRef.current = null;
-      if (!instance) return;
-      const stop = instance.isScanning
-        ? instance.stop().catch(() => {})
-        : Promise.resolve();
-      void stop.finally(() => {
-        try {
-          instance.clear();
-        } catch {
-          /* ignore */
-        }
-      });
+      clearScanTimer();
+      detectBusyRef.current = false;
+      detectorRef.current = null;
+      stopCameraStream();
     };
-  }, [activeSessionKey, handleDecoded, cameraRetryToken]);
+  }, [activeSessionKey, cameraRetryToken, clearScanTimer, stopCameraStream]);
 
-  // #reader 는 inSession + 모바일 조건에서 항상 DOM에 유지 (unmount 시 Html5Qrcode 생성자 실패 방지)
-  const showCameraArea = inSession && !isLikelyDesktop();
+  useEffect(() => {
+    if (!inSession || mode !== "camera") return;
+    startScanLoop();
+    return () => {
+      clearScanTimer();
+      detectBusyRef.current = false;
+    };
+  }, [clearScanTimer, inSession, mode, startScanLoop]);
+
+  const showCameraArea = inSession;
   const showMockPanel = inSession && mode === "mock";
   const showCameraLoading = showCameraArea && mode === "loading";
 
@@ -321,14 +385,17 @@ export default function Scanner({ onExitSession }: ScannerProps) {
             </div>
 
             <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto">
-              {/* #reader 는 inSession 모바일에서 항상 DOM에 존재 — unmount 하면 재시도 시 생성자가 throw 함 */}
               {showCameraArea && (
-                <div className="relative z-20 w-full shrink-0" style={{ minHeight: "40dvh" }}>
-                  {/* 카메라 피드를 받는 엘리먼트 — 항상 마운트 유지 */}
-                  <div
-                    id={READER_ID}
-                    className="relative z-10 w-full"
-                    style={{ minHeight: "40dvh" }}
+                <div
+                  className="relative z-20 w-full shrink-0"
+                  style={{ minHeight: "40dvh", height: "40dvh" }}
+                >
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="relative z-10 h-full w-full bg-zinc-900 object-cover"
                   />
 
                   {/* 로딩 오버레이 */}
@@ -343,10 +410,10 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                     <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-zinc-950 px-4">
                       <div className="w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-xl">
                         <h2 className="text-center text-lg font-semibold text-white">
-                          카메라를 켤 수 없어요
+                          {mockTitle}
                         </h2>
                         <p className="mt-2 text-center text-xs text-zinc-500">
-                          카메라 엑세스 허용 후 이 화면으로 돌아오면 자동으로 다시 연결합니다.
+                          {mockMessage}
                         </p>
                         <div className="mt-5">
                           <button
