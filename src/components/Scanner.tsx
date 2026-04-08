@@ -25,13 +25,6 @@ const DIGIT_ONLY = /^\d+$/;
 /** 카메라가 같은 프레임에서 비숫자를 연속 디코딩할 때 비프 스팸 방지 */
 const INVALID_BEEP_COOLDOWN_MS = 900;
 
-/** zoom 기능을 포함한 확장 타입 (표준 MediaTrackCapabilities 에 zoom 미포함) */
-interface ExtendedMediaTrackCapabilities extends MediaTrackCapabilities {
-  zoom?: { min: number; max: number; step: number };
-}
-interface ExtendedMediaTrackConstraintSet extends MediaTrackConstraintSet {
-  zoom?: number;
-}
 
 function isLikelyDesktop(): boolean {
   if (typeof window === "undefined") return true;
@@ -259,11 +252,19 @@ export default function Scanner({ onExitSession }: ScannerProps) {
         if (cancelled) return;
 
         if (cameras.length > 0) {
-          // 후면 카메라 우선 (label 기준), 없으면 목록 마지막 카메라 (보통 후면)
-          const backCamera = cameras.find((c) =>
-            /back|rear|environment|wide/i.test(c.label)
-          );
-          const target = backCamera ?? cameras[cameras.length - 1];
+          // 1순위: 주력 후면 카메라 (ultra-wide·telephoto 제외한 일반 1x 렌즈)
+          // 2순위: back/rear/environment 포함된 카메라
+          // 3순위: 목록 마지막 카메라
+          const isMainBack = (label: string) =>
+            /back|rear|environment/i.test(label) &&
+            !/wide|tele|ultra|zoom/i.test(label);
+          const isAnyBack = (label: string) =>
+            /back|rear|environment/i.test(label);
+
+          const target =
+            cameras.find((c) => isMainBack(c.label)) ??
+            cameras.find((c) => isAnyBack(c.label)) ??
+            cameras[cameras.length - 1];
           await scanner.start(target.id, scanConfig, handleDecoded, () => {});
         } else {
           // 카메라 목록을 못 얻어도 facingMode 로 직접 시도
@@ -277,31 +278,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
 
         if (!cancelled) {
           setMode("camera");
-
-          window.setTimeout(() => {
-            try {
-              const videoEl = document.querySelector(
-                `#${READER_ID} video`
-              ) as HTMLVideoElement | null;
-              if (!videoEl?.srcObject) return;
-
-              const stream = videoEl.srcObject as MediaStream;
-              const track = stream.getVideoTracks()[0];
-              if (!track) return;
-
-              const capabilities =
-                track.getCapabilities() as ExtendedMediaTrackCapabilities;
-              if (capabilities?.zoom) {
-                const targetZoom = Math.min(2.0, capabilities.zoom.max);
-                const constraintSet: ExtendedMediaTrackConstraintSet = {
-                  zoom: targetZoom,
-                };
-                void track.applyConstraints({ advanced: [constraintSet] });
-              }
-            } catch {
-              /* 미지원 기기에서 조용히 무시 */
-            }
-          }, 1000);
         }
       } catch {
         if (cancelled) return;
