@@ -125,6 +125,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const [flashKey, setFlashKey] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [cameraRetryToken, setCameraRetryToken] = useState(0);
+  const [debugInfoOpen, setDebugInfoOpen] = useState(false);
 
   const inSession = activeSessionKey !== null;
   const totalBooks = countSessionLines(liveSessionText);
@@ -166,6 +167,15 @@ export default function Scanner({ onExitSession }: ScannerProps) {
 
     setClientInfo({ browser, os });
   }, []);
+
+  useEffect(() => {
+    if (!debugInfoOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDebugInfoOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [debugInfoOpen]);
 
   const triggerFeedback = useCallback(
     (digits: string) => {
@@ -507,13 +517,26 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
             <AppHeader
               rightSlot={
-                <button
-                  type="button"
-                  onClick={handleExitSession}
-                  className="min-h-14 min-w-[5.5rem] rounded-2xl border border-amber-700/80 bg-zinc-900 px-4 py-3 text-sm font-semibold text-amber-100 active:bg-zinc-800"
-                >
-                  점검 중단
-                </button>
+                <>
+                  <button
+                    type="button"
+                    id="scan-debug-info-trigger"
+                    aria-haspopup="dialog"
+                    aria-expanded={debugInfoOpen}
+                    aria-controls="scan-debug-info-dialog"
+                    onClick={() => setDebugInfoOpen(true)}
+                    className="flex min-h-14 min-w-14 items-center justify-center rounded-2xl border border-zinc-600/90 bg-zinc-900 text-base font-bold italic text-zinc-300 active:bg-zinc-800"
+                  >
+                    i
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExitSession}
+                    className="min-h-14 min-w-[5.5rem] rounded-2xl border border-amber-700/80 bg-zinc-900 px-4 py-3 text-sm font-semibold text-amber-100 active:bg-zinc-800"
+                  >
+                    점검 중단
+                  </button>
+                </>
               }
             />
 
@@ -555,26 +578,11 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                   주세요.
                 </p>
               )}
-              <div className="mt-3 rounded-lg border border-zinc-800/70 bg-zinc-900/60 px-3 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                  디버그 정보
-                </p>
-                <p className="mt-1 text-[11px] text-zinc-300">
-                  브라우저: {clientInfo.browser}
-                </p>
-                <p className="text-[11px] text-zinc-300">OS: {clientInfo.os}</p>
-                <p className="text-[11px] text-zinc-400">
-                  스캔 엔진: {detectorEngine}
-                </p>
-              </div>
             </div>
 
-            <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {showCameraArea && (
-                <div
-                  className="relative z-20 w-full shrink-0"
-                  style={{ minHeight: "40dvh", height: "40dvh" }}
-                >
+                <div className="relative z-20 min-h-[48dvh] w-full min-w-0 flex-1">
                   <canvas ref={frameCanvasRef} className="hidden" aria-hidden />
                   <video
                     ref={videoRef}
@@ -630,15 +638,15 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       )}
 
       {inSession && (
-        <div className="relative z-40 shrink-0 border-t border-zinc-800/90 bg-zinc-950 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
-          <div className="mb-2">
+        <div className="relative z-40 shrink-0 border-t border-zinc-800/90 bg-zinc-950 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
+          <div className="mb-1.5">
             <label
               htmlFor="scan-session-textarea"
               className="block text-xs font-semibold uppercase tracking-wide text-zinc-400"
             >
               이번 점검 기록
             </label>
-            <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+            <p className="mt-0.5 text-[10px] leading-snug text-zinc-500">
               찍힌 번호만 아래에 쌓여요. 수정·복사는{" "}
               <span className="text-zinc-400">지난 점검 기록</span>에서 할 수
               있어요.
@@ -653,8 +661,48 @@ export default function Scanner({ onExitSession }: ScannerProps) {
             autoComplete="off"
             autoCorrect="off"
             tabIndex={-1}
-            className="min-h-[13rem] max-h-[45dvh] w-full cursor-default resize-none rounded-xl border border-zinc-700 bg-zinc-900/80 px-3 py-3 font-mono text-base leading-relaxed text-zinc-100 tabular-nums outline-none"
+            className="min-h-[6.5rem] max-h-[22dvh] w-full cursor-default resize-none rounded-xl border border-zinc-700 bg-zinc-900/80 px-2.5 py-2 font-mono text-sm leading-relaxed text-zinc-100 tabular-nums outline-none sm:min-h-[7rem] sm:text-base"
           />
+        </div>
+      )}
+
+      {inSession && debugInfoOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-6"
+          role="presentation"
+          onClick={() => setDebugInfoOpen(false)}
+        >
+          <div
+            id="scan-debug-info-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="scan-debug-info-title"
+            className="w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-900/95 p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="scan-debug-info-title"
+              className="text-center text-lg font-semibold text-white"
+            >
+              디버그 정보
+            </h2>
+            <p className="mt-3 text-[11px] text-zinc-300">
+              브라우저: {clientInfo.browser}
+            </p>
+            <p className="mt-1 text-[11px] text-zinc-300">OS: {clientInfo.os}</p>
+            <p className="mt-1 text-[11px] text-zinc-400">
+              스캔 엔진: {detectorEngine}
+            </p>
+            <div className="mt-5">
+              <button
+                type="button"
+                onClick={() => setDebugInfoOpen(false)}
+                className="min-h-14 w-full rounded-2xl border border-zinc-600 bg-zinc-800 px-4 py-3 text-base font-semibold text-zinc-100 active:bg-zinc-700"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
