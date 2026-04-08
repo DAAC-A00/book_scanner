@@ -45,7 +45,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const activeSessionKey = useScannerStore((s) => s.activeSessionKey);
   const endInventorySession = useScannerStore((s) => s.endInventorySession);
   const liveSessionText = useScannerStore((s) => s.liveSessionText);
-  const setLiveSessionText = useScannerStore((s) => s.setLiveSessionText);
   const appendDigitScanToActiveSession = useScannerStore(
     (s) => s.appendDigitScanToActiveSession
   );
@@ -387,7 +386,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
               이번 점검 기록
             </label>
             <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
-              찍은 번호가 아래에 쌓여요. 필요하면 직접 고치고, 복사는{" "}
+              찍힌 번호만 아래에 쌓여요. 수정·복사는{" "}
               <span className="text-zinc-400">지난 점검 기록</span>에서 할 수
               있어요.
             </p>
@@ -395,11 +394,13 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           <textarea
             id="scan-session-textarea"
             value={liveSessionText}
-            onChange={(e) => setLiveSessionText(e.target.value)}
+            readOnly
+            aria-readonly="true"
             spellCheck={false}
             autoComplete="off"
             autoCorrect="off"
-            className="min-h-[13rem] max-h-[45dvh] w-full resize-y rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-3 font-mono text-base leading-relaxed text-zinc-100 tabular-nums outline-none ring-emerald-500/35 focus:ring-2"
+            tabIndex={-1}
+            className="min-h-[13rem] max-h-[45dvh] w-full cursor-default resize-none rounded-xl border border-zinc-700 bg-zinc-900/80 px-3 py-3 font-mono text-base leading-relaxed text-zinc-100 tabular-nums outline-none"
           />
         </div>
       )}
