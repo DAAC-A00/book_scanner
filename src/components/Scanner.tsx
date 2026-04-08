@@ -12,9 +12,8 @@ import {
   type CSSProperties,
 } from "react";
 import AppHeader from "@/components/AppHeader";
-import ClipboardIcon from "@/components/ClipboardIcon";
 import { useScanBeeps } from "@/hooks/useScanBeeps";
-import { countSessionLines, toPlainSessionText } from "@/lib/sessionText";
+import { countSessionLines } from "@/lib/sessionText";
 import { useScannerStore } from "@/store/useScannerStore";
 
 /** html5-qrcode 가 시각·비디오를 붙이는 요소 (요구사항 id) */
@@ -64,8 +63,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const [flashKey, setFlashKey] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [cameraRetryToken, setCameraRetryToken] = useState(0);
-  const [sessionCopyDone, setSessionCopyDone] = useState(false);
-  const sessionCopyTimerRef = useRef<number | null>(null);
 
   const inSession = activeSessionKey !== null;
   const totalBooks = countSessionLines(liveSessionText);
@@ -74,14 +71,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     if (!inSession) return;
     prime();
   }, [inSession, prime]);
-
-  useEffect(() => {
-    return () => {
-      if (sessionCopyTimerRef.current !== null) {
-        window.clearTimeout(sessionCopyTimerRef.current);
-      }
-    };
-  }, []);
 
   const triggerFeedback = useCallback(
     (digits: string) => {
@@ -114,32 +103,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     },
     [appendDigitScanToActiveSession, playFailure, triggerFeedback]
   );
-
-  const copyCurrentSession = useCallback(async () => {
-    const plain = toPlainSessionText(liveSessionText);
-    if (!plain) {
-      setToast("복사할 바코드가 없어요.");
-      window.setTimeout(() => setToast(null), 1600);
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(plain);
-      setSessionCopyDone(true);
-      setToast("클립보드에 복사했어요. 민경 선생님께 붙여 넣어내면 돼요.");
-      window.setTimeout(() => setToast(null), 2200);
-      if (sessionCopyTimerRef.current !== null) {
-        window.clearTimeout(sessionCopyTimerRef.current);
-      }
-      sessionCopyTimerRef.current = window.setTimeout(
-        () => setSessionCopyDone(false),
-        2000
-      );
-    } catch {
-      window.alert(
-        "복사에 실패했습니다. 아래 목록을 길게 눌러 직접 복사해 주세요."
-      );
-    }
-  }, [liveSessionText]);
 
   const retryCamera = useCallback(() => {
     setCameraRetryToken((prev) => prev + 1);
@@ -285,12 +248,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const showCameraLoading = showCameraArea && mode === "loading";
 
   const handleExitSession = () => {
-    if (
-      !window.confirm(
-        "점검을 중단하고 첫 화면으로 돌아갈까요?\n이미 찍은 번호는 이 휴대폰(브라우저)에 그대로 남아 있어요."
-      )
-    )
-      return;
     endInventorySession();
     onExitSession?.();
   };
@@ -389,12 +346,8 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                         <h2 className="text-center text-lg font-semibold text-white">
                           카메라를 켤 수 없어요
                         </h2>
-                        <p className="mt-3 text-center text-sm leading-relaxed text-zinc-400">
-                          Safari 주소창 왼쪽 <strong className="text-zinc-200">AA</strong> 또는 잠금 아이콘을 탭하여 카메라 권한을{" "}
-                          <strong className="text-zinc-200">허용</strong>으로 바꾼 뒤 아래 버튼을 눌러 주세요.
-                        </p>
                         <p className="mt-2 text-center text-xs text-zinc-500">
-                          설정 후 이 화면으로 돌아오면 자동으로 다시 연결합니다.
+                          카메라 엑세스 허용 후 이 화면으로 돌아오면 자동으로 다시 연결합니다.
                         </p>
                         <div className="mt-5">
                           <button
@@ -426,30 +379,18 @@ export default function Scanner({ onExitSession }: ScannerProps) {
 
       {inSession && (
         <div className="relative z-40 shrink-0 border-t border-zinc-800/90 bg-zinc-950 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
-          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
-            <div className="min-w-0">
-              <label
-                htmlFor="scan-session-textarea"
-                className="block text-xs font-semibold uppercase tracking-wide text-zinc-400"
-              >
-                이번 점검 기록
-              </label>
-              <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
-                찍은 번호가 아래에 쌓여요. 필요하면 직접 고쳐도 돼요.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => void copyCurrentSession()}
-              className={`flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl px-4 text-base font-semibold transition active:scale-[0.99] sm:w-auto sm:min-w-[9.5rem] ${
-                sessionCopyDone
-                  ? "bg-emerald-600 text-white"
-                  : "border border-emerald-600/55 bg-emerald-950/60 text-emerald-100 active:bg-emerald-950/85"
-              }`}
+          <div className="mb-2">
+            <label
+              htmlFor="scan-session-textarea"
+              className="block text-xs font-semibold uppercase tracking-wide text-zinc-400"
             >
-              <ClipboardIcon className="h-5 w-5 shrink-0 opacity-90" />
-              {sessionCopyDone ? "복사됨" : "전체 복사"}
-            </button>
+              이번 점검 기록
+            </label>
+            <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+              찍은 번호가 아래에 쌓여요. 필요하면 직접 고치고, 복사는{" "}
+              <span className="text-zinc-400">지난 점검 기록</span>에서 할 수
+              있어요.
+            </p>
           </div>
           <textarea
             id="scan-session-textarea"

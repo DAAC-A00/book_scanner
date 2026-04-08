@@ -71,22 +71,9 @@ export default function Home() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedText, setSelectedText] = useState("");
   const [copyDone, setCopyDone] = useState(false);
-  const [inlineToast, setInlineToast] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
-  const inlineToastRef = useRef<number | null>(null);
   const skipNextPopConfirmRef = useRef(false);
   const didSetupHistoryRef = useRef(false);
-
-  const flashInlineToast = useCallback((msg: string) => {
-    setInlineToast(msg);
-    if (inlineToastRef.current !== null) {
-      window.clearTimeout(inlineToastRef.current);
-    }
-    inlineToastRef.current = window.setTimeout(() => {
-      setInlineToast(null);
-      inlineToastRef.current = null;
-    }, 2000);
-  }, []);
 
   const applyScreen = useCallback(
     (screen: Screen) => {
@@ -121,9 +108,6 @@ export default function Home() {
   useEffect(() => {
     return () => {
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-      if (inlineToastRef.current !== null) {
-        window.clearTimeout(inlineToastRef.current);
-      }
     };
   }, []);
 
@@ -219,22 +203,6 @@ export default function Home() {
       timerRef.current = window.setTimeout(() => setCopyDone(false), 1800);
     } catch {
       window.alert("복사에 실패했습니다. 텍스트를 길게 눌러 직접 복사해 주세요.");
-    }
-  };
-
-  const copyListSession = async (key: string) => {
-    const plain = toPlainSessionText(readSessionRaw(key));
-    if (!plain) {
-      flashInlineToast("복사할 바코드가 없어요.");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(plain);
-      flashInlineToast("클립보드에 복사했어요.");
-    } catch {
-      window.alert(
-        "복사에 실패했습니다. 항목을 눌러 상세에서 직접 복사해 주세요."
-      );
     }
   };
 
@@ -366,7 +334,7 @@ export default function Home() {
                   세션 관리 · 지난 점검
                 </h2>
                 <p className="text-[11px] text-zinc-500">
-                  항목을 눌러 편집 · 오른쪽 아이콘으로 전체 복사
+                  항목을 눌러 보기·편집·복사
                 </p>
               </div>
               <span className="w-[64px] shrink-0 sm:w-[72px]" aria-hidden />
@@ -383,14 +351,11 @@ export default function Home() {
                   {sessionKeys.map((key) => {
                     const raw = readSessionRaw(key);
                     return (
-                      <li
-                        key={key}
-                        className="flex min-h-[3.75rem] items-stretch"
-                      >
+                      <li key={key}>
                         <button
                           type="button"
                           onClick={() => openDetail(key)}
-                          className="flex min-h-[3.75rem] min-w-0 flex-1 flex-col items-start justify-center px-4 py-4 text-left active:bg-zinc-800/70"
+                          className="flex min-h-[3.75rem] w-full flex-col items-start justify-center px-4 py-4 text-left active:bg-zinc-800/70"
                         >
                           <span className="text-sm font-semibold text-zinc-100">
                             {formatSessionLabel(key)}
@@ -398,14 +363,6 @@ export default function Home() {
                           <span className="text-xs text-zinc-500">
                             바코드 {countSessionLines(raw)}권
                           </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void copyListSession(key)}
-                          className="flex min-h-[3.75rem] min-w-[3.75rem] shrink-0 items-center justify-center border-l border-zinc-800 bg-zinc-900/50 text-emerald-400/95 active:bg-zinc-800/80"
-                          aria-label={`${formatSessionLabel(key)} 세션 바코드 전체 클립보드 복사`}
-                        >
-                          <ClipboardIcon className="h-6 w-6" />
                         </button>
                       </li>
                     );
@@ -463,7 +420,7 @@ export default function Home() {
                 onClick={onDelete}
                 className="min-h-14 rounded-2xl border border-red-900/70 bg-red-950/40 px-5 text-base font-semibold text-red-100 active:bg-red-950/70"
               >
-                이 기록 삭제
+                이 점검 삭제하기
               </button>
             </div>
             <div className="min-h-0 flex-1 px-4 pb-4">
@@ -483,15 +440,6 @@ export default function Home() {
           </section>
         )}
       </div>
-
-      {inlineToast && (
-        <div
-          className="pointer-events-none fixed bottom-24 left-1/2 z-[80] max-w-sm -translate-x-1/2 rounded-xl border border-emerald-500/35 bg-emerald-950/95 px-4 py-2 text-center text-sm text-emerald-100 shadow-lg"
-          role="status"
-        >
-          {inlineToast}
-        </div>
-      )}
 
       <AppFooter className="mt-auto" />
     </main>
