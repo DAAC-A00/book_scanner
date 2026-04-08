@@ -108,6 +108,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const detectBusyRef = useRef(false);
   const lastInvalidBeepAt = useRef(0);
   const activeEngineRef = useRef<"native" | "quagga" | null>(null);
+  const scanBufferRef = useRef<string[]>([]);
 
   const { playSuccess, playFailure, prime } = useScanBeeps();
 
@@ -352,6 +353,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       detectBusyRef.current = false;
       activeEngineRef.current = null;
       detectorRef.current = null;
+      scanBufferRef.current = [];
       if (quaggaRef.current?.stop) {
         try {
           quaggaRef.current.stop();
@@ -366,6 +368,21 @@ export default function Scanner({ onExitSession }: ScannerProps) {
 
   useEffect(() => {
     if (!inSession || mode !== "camera") return;
+
+    const pushEan13Consensus = (code: string) => {
+      const buf = scanBufferRef.current;
+      buf.push(code);
+      while (buf.length > 3) buf.shift();
+      if (
+        buf.length === 3 &&
+        buf[0] === buf[1] &&
+        buf[1] === buf[2]
+      ) {
+        handleDecoded(buf[0]);
+        scanBufferRef.current = [];
+      }
+    };
+
     const tick = async () => {
       if (detectBusyRef.current) return;
       const video = videoRef.current;
@@ -384,7 +401,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
             DIGIT_ONLY.test(rawValue) &&
             isValidEAN13(rawValue)
           ) {
-            handleDecoded(rawValue);
+            pushEan13Consensus(rawValue);
           }
           return;
         }
@@ -393,13 +410,17 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           const quagga = quaggaRef.current;
           const canvas = frameCanvasRef.current;
           if (!quagga || !canvas) return;
-          const width = video.videoWidth || 1280;
-          const height = video.videoHeight || 720;
-          if (canvas.width !== width) canvas.width = width;
-          if (canvas.height !== height) canvas.height = height;
+          const vw = video.videoWidth || 1280;
+          const vh = video.videoHeight || 720;
+          const cropW = Math.max(1, Math.floor(vw * 0.6));
+          const cropH = Math.max(1, Math.floor(vh * 0.6));
+          const sx = Math.floor((vw - cropW) / 2);
+          const sy = Math.floor((vh - cropH) / 2);
+          if (canvas.width !== cropW) canvas.width = cropW;
+          if (canvas.height !== cropH) canvas.height = cropH;
           const ctx = canvas.getContext("2d");
           if (!ctx) return;
-          ctx.drawImage(video, 0, 0, width, height);
+          ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
 
           const frameDataUrl = canvas.toDataURL("image/jpeg", 0.92);
           const result = await quagga.decodeSingle({
@@ -424,7 +445,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
             DIGIT_ONLY.test(rawValue) &&
             isValidEAN13(rawValue)
           ) {
-            handleDecoded(rawValue);
+            pushEan13Consensus(rawValue);
           }
         }
       } catch {
@@ -442,6 +463,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     return () => {
       clearScanTimer();
       detectBusyRef.current = false;
+      scanBufferRef.current = [];
       if (quaggaRef.current?.stop) {
         try {
           quaggaRef.current.stop();
