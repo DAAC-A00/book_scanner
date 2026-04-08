@@ -217,41 +217,63 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     let cancelled = false;
     setMode("loading");
 
-    // 이전 시도에서 남은 DOM 잔재 제거 후 새 인스턴스 생성
-    const readerEl = document.getElementById(READER_ID);
-    if (readerEl) readerEl.innerHTML = "";
-
-    const scanner = new Html5Qrcode(READER_ID, {
-      verbose: false,
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.QR_CODE,
-      ],
-    });
-    scannerRef.current = scanner;
-
     const start = async () => {
+      // 이전 시도 DOM 잔재 제거 (#reader는 항상 마운트되어 있으므로 안전)
       try {
-        // getCameras() 호출 없이 바로 후면 카메라로 시작
-        // (getCameras()는 내부적으로 getUserMedia를 중복 호출해 권한 충돌 유발)
-        const scanConfig = { fps: 12 };
-        const envConstraints: MediaTrackConstraints = {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1920, min: 640 },
-          height: { ideal: 1080, min: 480 },
-        };
+        const readerEl = document.getElementById(READER_ID);
+        if (readerEl) readerEl.innerHTML = "";
+      } catch { /* ignore */ }
 
-        await scanner.start(
-          envConstraints,
-          scanConfig,
-          handleDecoded,
-          () => {}
-        );
+      // Html5Qrcode 생성자도 throw 가능 → async 함수 안에서 try/catch로 감쌈
+      let scanner: Html5Qrcode;
+      try {
+        scanner = new Html5Qrcode(READER_ID, {
+          verbose: false,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.QR_CODE,
+          ],
+        });
+      } catch {
+        if (!cancelled) setMode("mock");
+        return;
+      }
+      scannerRef.current = scanner;
+
+      try {
+        const scanConfig = { fps: 12 };
+
+        // getCameras()는 iOS Safari에서 카메라 권한 팝업을 띄우는 트리거
+        // 반드시 호출해야 iOS 권한 다이얼로그가 표시됨
+        let cameras: Array<{ id: string; label: string }> = [];
+        try {
+          cameras = await Html5Qrcode.getCameras();
+        } catch {
+          // 권한 거부 또는 API 미지원 → cameras 빈 배열 유지
+        }
+        if (cancelled) return;
+
+        if (cameras.length > 0) {
+          // 후면 카메라 우선 (label 기준), 없으면 목록 마지막 카메라 (보통 후면)
+          const backCamera = cameras.find((c) =>
+            /back|rear|environment|wide/i.test(c.label)
+          );
+          const target = backCamera ?? cameras[cameras.length - 1];
+          await scanner.start(target.id, scanConfig, handleDecoded, () => {});
+        } else {
+          // 카메라 목록을 못 얻어도 facingMode 로 직접 시도
+          await scanner.start(
+            { facingMode: "environment" },
+            scanConfig,
+            handleDecoded,
+            () => {}
+          );
+        }
 
         if (!cancelled) {
           setMode("camera");
@@ -285,14 +307,10 @@ export default function Scanner({ onExitSession }: ScannerProps) {
         if (cancelled) return;
         try {
           if (scanner.isScanning) await scanner.stop();
-        } catch {
-          /* ignore */
-        }
+        } catch { /* ignore */ }
         try {
           scanner.clear();
-        } catch {
-          /* ignore */
-        }
+        } catch { /* ignore */ }
         scannerRef.current = null;
         setMode("mock");
       }
@@ -318,10 +336,10 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     };
   }, [activeSessionKey, handleDecoded, cameraRetryToken]);
 
-  const showReader = inSession && !isLikelyDesktop() && mode !== "mock";
+  // #reader 는 inSession + 모바일 조건에서 항상 DOM에 유지 (unmount 시 Html5Qrcode 생성자 실패 방지)
+  const showCameraArea = inSession && !isLikelyDesktop();
   const showMockPanel = inSession && mode === "mock";
-  const showCameraLoading =
-    inSession && !isLikelyDesktop() && mode === "loading";
+  const showCameraLoading = showCameraArea && mode === "loading";
 
   const handleExitSession = () => {
     if (
@@ -404,46 +422,50 @@ export default function Scanner({ onExitSession }: ScannerProps) {
             </div>
 
             <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto">
-              {showReader && (
-                <div className="relative z-20 w-full min-w-[60%] min-h-[40dvh] shrink-0">
+              {/* #reader 는 inSession 모바일에서 항상 DOM에 존재 — unmount 하면 재시도 시 생성자가 throw 함 */}
+              {showCameraArea && (
+                <div className="relative z-20 w-full shrink-0" style={{ minHeight: "40dvh" }}>
+                  {/* 카메라 피드를 받는 엘리먼트 — 항상 마운트 유지 */}
+                  <div
+                    id={READER_ID}
+                    className="relative z-10 w-full"
+                    style={{ minHeight: "40dvh" }}
+                  />
+                  {mode === "camera" && <ViewfinderOverlay />}
+
+                  {/* 로딩 오버레이 */}
                   {showCameraLoading && (
                     <div className="pointer-events-none absolute inset-0 z-[50] flex items-center justify-center bg-zinc-950/85 backdrop-blur-sm">
                       <p className="text-sm text-zinc-400">카메라 준비 중…</p>
                     </div>
                   )}
-                  <div
-                    id={READER_ID}
-                    className="relative z-10 h-full min-h-[40dvh] w-full"
-                  />
-                  {mode === "camera" && <ViewfinderOverlay />}
-                </div>
-              )}
 
-              {showMockPanel && (
-                <div className="relative z-20 flex min-h-[40dvh] flex-col items-center justify-center px-4 py-6">
-                  <div className="w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-xl">
-                    <h2 className="text-center text-lg font-semibold text-white">
-                      카메라를 켤 수 없어요
-                    </h2>
-                    <p className="mt-3 text-center text-sm leading-relaxed text-zinc-400">
-                      브라우저 주소창 왼쪽의 잠금(🔒) 아이콘을 눌러 카메라
-                      권한을 <strong className="text-zinc-200">허용</strong>으로
-                      바꾼 뒤, 아래 버튼을 눌러 주세요.
-                    </p>
-                    <p className="mt-2 text-center text-xs text-zinc-500">
-                      설정을 마치고 이 화면으로 돌아오면 자동으로 다시
-                      연결합니다.
-                    </p>
-                    <div className="mt-5">
-                      <button
-                        type="button"
-                        onClick={retryCamera}
-                        className="min-h-14 w-full rounded-2xl border border-emerald-700/70 bg-emerald-900/70 px-4 py-3 text-base font-semibold text-emerald-100 transition active:scale-[0.99]"
-                      >
-                        카메라 다시 연결하기
-                      </button>
+                  {/* 권한 오류 오버레이 — #reader 위에 absolute 로 덮음 */}
+                  {showMockPanel && (
+                    <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-zinc-950 px-4">
+                      <div className="w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-xl">
+                        <h2 className="text-center text-lg font-semibold text-white">
+                          카메라를 켤 수 없어요
+                        </h2>
+                        <p className="mt-3 text-center text-sm leading-relaxed text-zinc-400">
+                          Safari 주소창 왼쪽 <strong className="text-zinc-200">AA</strong> 또는 잠금 아이콘을 탭하여 카메라 권한을{" "}
+                          <strong className="text-zinc-200">허용</strong>으로 바꾼 뒤 아래 버튼을 눌러 주세요.
+                        </p>
+                        <p className="mt-2 text-center text-xs text-zinc-500">
+                          설정 후 이 화면으로 돌아오면 자동으로 다시 연결합니다.
+                        </p>
+                        <div className="mt-5">
+                          <button
+                            type="button"
+                            onClick={retryCamera}
+                            className="min-h-14 w-full rounded-2xl border border-emerald-700/70 bg-emerald-900/70 px-4 py-3 text-base font-semibold text-emerald-100 transition active:scale-[0.99]"
+                          >
+                            카메라 다시 연결하기
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
             </div>
