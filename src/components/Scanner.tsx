@@ -13,6 +13,25 @@ import { countSessionLines } from "@/lib/sessionText";
 import { useScannerStore } from "@/store/useScannerStore";
 
 const DIGIT_ONLY = /^\d+$/;
+
+/**
+ * EAN-13(13자리) 체크섬 검증.
+ * 앞 12자리에 대해 (홀 번째 자리 합×1 + 짝 번째 자리 합×3)의 mod 10 보완값이 13번째 자리와 일치하는지 확인한다.
+ */
+function isValidEAN13(code: string): boolean {
+  if (code.length !== 13) return false;
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+    const d = code.charCodeAt(i) - 48;
+    if (d < 0 || d > 9) return false;
+    sum += d * (i % 2 === 0 ? 1 : 3);
+  }
+  const checkDigit = (10 - (sum % 10)) % 10;
+  const last = code.charCodeAt(12) - 48;
+  if (last < 0 || last > 9) return false;
+  return last === checkDigit;
+}
+
 /** 카메라가 같은 프레임에서 비숫자를 연속 디코딩할 때 비프 스팸 방지 */
 const INVALID_BEEP_COOLDOWN_MS = 900;
 const SCAN_INTERVAL_MS = 100;
@@ -360,7 +379,11 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           if (!detector) return;
           const result = await detector.detect(video);
           const rawValue = result[0]?.rawValue?.trim();
-          if (rawValue && DIGIT_ONLY.test(rawValue)) {
+          if (
+            rawValue &&
+            DIGIT_ONLY.test(rawValue) &&
+            isValidEAN13(rawValue)
+          ) {
             handleDecoded(rawValue);
           }
           return;
@@ -396,7 +419,11 @@ export default function Scanner({ onExitSession }: ScannerProps) {
             },
           });
           const rawValue = result?.codeResult?.code?.trim();
-          if (rawValue && DIGIT_ONLY.test(rawValue)) {
+          if (
+            rawValue &&
+            DIGIT_ONLY.test(rawValue) &&
+            isValidEAN13(rawValue)
+          ) {
             handleDecoded(rawValue);
           }
         }
