@@ -22,14 +22,14 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "빛나래 장서점검",
+  title: "가람고 빛나래 · 장서점검",
   description:
-    "바코드만 스윽— 줄줄이 쌓이는 장서점검. 홈 화면에 두고 오프라인에서도 쓰세요.",
+    "동국대학교사범대학부속가람고등학교 도서부 동아리 빛나래 장서점검용 도구입니다. 바코드(숫자)를 찍을 때마다 이 기기에 바로 저장되며, 인터넷이 잠시 끊겨도 기록은 남습니다.",
   manifest: "/manifest.json",
-  applicationName: "빛나래 장서점검",
+  applicationName: "가람고 빛나래 장서점검",
   appleWebApp: {
     capable: true,
-    title: "빛나래 장서점검",
+    title: "가람고 빛나래 장서점검",
     statusBarStyle: "black-translucent",
   },
   formatDetection: {

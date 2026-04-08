@@ -52,6 +52,10 @@ async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
 }
 
+const SCHOOL_NAME =
+  "동국대학교사범대학부속가람고등학교 도서관";
+const CLUB_NAME = "도서부 동아리 빛나래";
+
 export default function Home() {
   const activeSessionKey = useScannerStore((s) => s.activeSessionKey);
   const beginInventorySession = useScannerStore((s) => s.beginInventorySession);
@@ -125,7 +129,7 @@ export default function Home() {
           skipNextPopConfirmRef.current = false;
           if (shouldSkipConfirm) return;
 
-          if (window.confirm("앱을 종료할까요?")) {
+          if (window.confirm("첫 화면을 나가 앱을 닫을까요?")) {
             skipNextPopConfirmRef.current = true;
             window.history.back();
             return;
@@ -169,7 +173,12 @@ export default function Home() {
 
   const onDelete = () => {
     if (!selectedKey) return;
-    if (!window.confirm("이 점검 기록을 삭제할까요?")) return;
+    if (
+      !window.confirm(
+        "이 점검 기록을 삭제할까요?\n삭제하면 이 휴대폰에서 복구할 수 없어요."
+      )
+    )
+      return;
     deleteSessionKey(selectedKey);
     setSelectedKey(null);
     setSelectedText("");
@@ -192,6 +201,10 @@ export default function Home() {
 
   const selectedCount = useMemo(() => lineCount(selectedText), [selectedText]);
   const totalRecords = sessionKeys.length;
+  const canCopyDetail = useMemo(
+    () => toPlain(selectedText).length > 0,
+    [selectedText]
+  );
 
   if (isScanMode) {
     return (
@@ -215,22 +228,68 @@ export default function Home() {
           <section className="flex min-h-0 flex-1 flex-col">
             <div className="rounded-3xl border border-zinc-800 bg-linear-to-b from-zinc-900 to-zinc-950 p-6 shadow-2xl shadow-black/30">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400/90">
-                MAIN 화면
+                {CLUB_NAME}
               </p>
-              <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">
-                언제나 밝은 도서부
+              <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                {SCHOOL_NAME}
+              </p>
+              <h1 className="mt-3 text-3xl font-bold tracking-tight text-white">
+                장서점검
               </h1>
               <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                업무 시작과 데이터 관리를 분리한 메인 화면입니다.
+                사서교사 민경 선생님과 함께 도서관을 돌보며, 빛나래 동아리
+                활동으로 장서를 점검할 때 쓰는 도구예요. 바코드(숫자)를 찍을
+                때마다 이 기기에 바로 쌓이고, 진행 방법이 헷갈리면 항상 선생님께
+                여쭤 보세요.
               </p>
             </div>
-            <div className="mt-7 grid gap-3 sm:grid-cols-2">
+
+            <div
+              className="mt-5 rounded-2xl border border-zinc-800/90 bg-zinc-900/50 px-4 py-3"
+              aria-label="이용 안내"
+            >
+              <p className="text-xs font-semibold text-zinc-300">
+                이렇게 쓰면 편해요
+              </p>
+              <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-zinc-500">
+                <li className="flex gap-2">
+                  <span className="shrink-0 text-emerald-500/90" aria-hidden>
+                    ·
+                  </span>
+                  <span>
+                    첫 화면에서는 카메라가 꺼져 있어요.{" "}
+                    <span className="text-zinc-400">장서점검 시작</span>을 누른
+                    뒤에만 켜져요.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="shrink-0 text-emerald-500/90" aria-hidden>
+                    ·
+                  </span>
+                  <span>
+                    저장되는 건 <span className="text-zinc-400">숫자만</span>{" "}
+                    있는 바코드예요. (QR·글자 섞인 코드는 넘어가요.)
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="shrink-0 text-emerald-500/90" aria-hidden>
+                    ·
+                  </span>
+                  <span>
+                    데이터는 이 브라우저 안(로컬)에만 남아요. Wi-Fi가 불안정해도
+                    찍은 순간부터 저장돼요.
+                  </span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <button
                 type="button"
                 onClick={startWork}
-                className="flex h-16 items-center justify-center rounded-3xl bg-emerald-600 text-lg font-semibold text-white shadow-xl shadow-emerald-950/40 active:bg-emerald-700"
+                className="flex min-h-16 items-center justify-center rounded-3xl bg-emerald-600 px-3 text-lg font-semibold text-white shadow-xl shadow-emerald-950/40 active:bg-emerald-700"
               >
-                장서점검 업무 시작
+                장서점검 시작
               </button>
               <button
                 type="button"
@@ -238,9 +297,10 @@ export default function Home() {
                   setAdminView("list");
                   pushScreenHistory("list");
                 }}
-                className="flex h-16 items-center justify-center rounded-3xl border border-zinc-700 bg-zinc-900 text-base font-semibold text-zinc-100 active:bg-zinc-800"
+                className="flex min-h-16 items-center justify-center rounded-3xl border border-zinc-700 bg-zinc-900 px-3 text-base font-semibold text-zinc-100 active:bg-zinc-800"
               >
-                저장된 점검 목록 ({totalRecords}건)
+                지난 점검 기록
+                {totalRecords > 0 ? ` (${totalRecords})` : ""}
               </button>
             </div>
           </section>
@@ -248,23 +308,27 @@ export default function Home() {
 
         {adminView === "list" && (
           <section className="flex min-h-0 flex-1 flex-col rounded-2xl border border-zinc-800 bg-zinc-900/40">
-            <header className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
+            <header className="flex items-center gap-2 border-b border-zinc-800 px-3 py-3 sm:px-4">
               <button
                 type="button"
                 onClick={() => window.history.back()}
-                className="rounded-full border border-zinc-600 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-zinc-200 active:bg-zinc-800"
+                className="shrink-0 rounded-full border border-zinc-600 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-zinc-200 active:bg-zinc-800"
               >
                 뒤로
               </button>
-              <h2 className="text-base font-semibold text-zinc-100">
-                저장된 점검 목록
-              </h2>
-              <span className="w-[64px]" aria-hidden />
+              <div className="min-w-0 flex-1 text-center">
+                <h2 className="truncate text-base font-semibold text-zinc-100">
+                  지난 점검 기록
+                </h2>
+              </div>
+              <span className="w-[64px] shrink-0 sm:w-[72px]" aria-hidden />
             </header>
             <div className="min-h-0 flex-1 overflow-y-auto">
               {sessionKeys.length === 0 ? (
-                <p className="px-4 py-6 text-sm text-zinc-500">
-                  저장된 점검 기록이 없습니다.
+                <p className="px-4 py-6 text-sm leading-relaxed text-zinc-500">
+                  아직 저장된 점검이 없어요.{" "}
+                  <span className="text-zinc-400">장서점검 시작</span>으로
+                  한 번 점검해 보면 여기에 날짜별로 쌓여요.
                 </p>
               ) : (
                 <ul className="divide-y divide-zinc-800">
@@ -281,7 +345,7 @@ export default function Home() {
                             {formatSessionLabel(key)}
                           </span>
                           <span className="text-xs text-zinc-500">
-                            스캔 {lineCount(raw)}건
+                            바코드 {lineCount(raw)}권
                           </span>
                         </button>
                       </li>
@@ -295,37 +359,58 @@ export default function Home() {
 
         {adminView === "detail" && selectedKey && (
           <section className="flex min-h-0 flex-1 flex-col rounded-2xl border border-zinc-800 bg-zinc-900/40">
-            <header className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
+            <header className="flex items-center gap-2 border-b border-zinc-800 px-3 py-3 sm:px-4">
               <button
                 type="button"
                 onClick={() => window.history.back()}
-                className="rounded-full border border-zinc-600 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-zinc-200 active:bg-zinc-800"
+                className="shrink-0 rounded-full border border-zinc-600 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-zinc-200 active:bg-zinc-800"
               >
                 뒤로
               </button>
-              <span className="text-xs text-zinc-500">{selectedCount}건</span>
+              <div className="min-w-0 flex-1 text-center">
+                <h2 className="truncate text-sm font-semibold text-zinc-100">
+                  {formatSessionLabel(selectedKey)}
+                </h2>
+                <p className="text-[11px] text-zinc-500">
+                  바코드 {selectedCount}권
+                </p>
+              </div>
+              <span
+                className="w-[64px] shrink-0 sm:w-[72px]"
+                aria-hidden
+              />
             </header>
             <div className="flex flex-wrap items-center gap-2 px-4 py-3">
               <button
                 type="button"
                 onClick={onCopy}
-                className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                disabled={!canCopyDetail}
+                title={
+                  canCopyDetail
+                    ? undefined
+                    : "복사할 숫자 줄이 없어요. 먼저 점검을 진행하거나 아래에 번호를 적어 주세요."
+                }
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
                   copyDone
                     ? "bg-emerald-600 text-white"
                     : "border border-zinc-600 bg-zinc-900 text-zinc-100 active:bg-zinc-800"
                 }`}
               >
-                {copyDone ? "데이터 복사 완료" : "데이터 복사"}
+                {copyDone ? "복사 완료" : "번호 목록 복사"}
               </button>
               <button
                 type="button"
                 onClick={onDelete}
                 className="rounded-full border border-red-900/70 bg-red-950/40 px-4 py-2 text-sm font-semibold text-red-100 active:bg-red-950/70"
               >
-                데이터 삭제
+                이 기록 삭제
               </button>
             </div>
             <div className="min-h-0 flex-1 px-4 pb-4">
+              <p className="mb-2 text-xs leading-relaxed text-zinc-500">
+                선생님이 정한 방식대로 붙여 넣거나 수정해요. 한 줄에 번호 하나씩이면
+                복사하기 편해요.
+              </p>
               <textarea
                 value={selectedText}
                 onChange={(e) => onChangeDetail(e.target.value)}

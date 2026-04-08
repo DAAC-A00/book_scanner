@@ -78,6 +78,8 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const appendDigitScanToActiveSession = useScannerStore(
     (s) => s.appendDigitScanToActiveSession
   );
+  const lastCapturedCode = useScannerStore((s) => s.lastCapturedCode);
+  const lastCaptureAt = useScannerStore((s) => s.lastCaptureAt);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
@@ -97,7 +99,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       navigator.vibrate([100]);
     }
-    setToast(`스캔 완료: ${digits}`);
+    setToast(`기록했어요: ${digits}`);
     window.setTimeout(() => setToast(null), 1500);
   }, []);
 
@@ -333,7 +335,12 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const showCameraLoading =
     inSession && !isLikelyDesktop() && mode === "loading";
   const handleExitSession = () => {
-    if (!window.confirm("점검을 종료하고 메인 화면으로 이동할까요?")) return;
+    if (
+      !window.confirm(
+        "점검을 중단하고 첫 화면으로 돌아갈까요?\n이미 찍은 번호는 이 휴대폰(브라우저)에 그대로 남아 있어요."
+      )
+    )
+      return;
     endInventorySession();
     onExitSession?.();
   };
@@ -361,9 +368,32 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                 onClick={handleExitSession}
                 className="rounded-full border border-amber-700/80 bg-zinc-900 px-4 py-2 text-sm font-semibold text-amber-100 active:bg-zinc-800"
               >
-                종료
+                점검 중단
               </button>
             </header>
+
+            <div
+              className="shrink-0 border-b border-zinc-800/80 bg-zinc-950/90 px-4 py-3 backdrop-blur-sm"
+              aria-live="polite"
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                방금 인식
+              </p>
+              {lastCapturedCode ? (
+                <p
+                  key={lastCaptureAt}
+                  className="scan-live-code-hit mt-1 break-all text-center text-3xl font-bold tabular-nums tracking-tight text-emerald-300 sm:text-4xl"
+                >
+                  {lastCapturedCode}
+                </p>
+              ) : (
+                <p className="mt-1 text-center text-sm leading-snug text-zinc-500">
+                  아직 없어요. 책등·바코드가{" "}
+                  <span className="text-zinc-400">숫자만</span> 보이게 비춰
+                  주세요.
+                </p>
+              )}
+            </div>
 
             <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto">
               {showReader && (
@@ -434,7 +464,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       {inSession && (
         <div className="relative z-40 shrink-0 border-t border-zinc-800 bg-zinc-950/98 px-3 py-2">
           <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
-            점검 목록
+            이번 점검에 모은 번호
           </label>
           <textarea
             value={liveSessionText}
