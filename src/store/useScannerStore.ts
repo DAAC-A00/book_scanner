@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { countSessionLines } from "@/lib/sessionText";
 
 const DIGIT_ONLY = /^\d+$/;
 /** 동일 바코드만 2초간 재입력 차단 (다른 바코드는 즉시 허용) */
@@ -71,6 +72,31 @@ function hasAnyNonEmptyLine(text: string): boolean {
 export function deleteSessionKey(key: string): void {
   if (typeof window === "undefined") return;
   localStorage.removeItem(key);
+}
+
+/** 비어 있는(바코드 줄 0건) 세션 키를 localStorage에서 제거. 메인 표시 직전에 호출. */
+export function removeSessionKeysWithZeroBarcodes(): void {
+  if (typeof window === "undefined") return;
+  const keys = listSessionStorageKeys();
+  const { activeSessionKey } = useScannerStore.getState();
+  let removedActive = false;
+  let anyRemoved = false;
+  for (const key of keys) {
+    if (countSessionLines(readSessionRaw(key)) > 0) continue;
+    deleteSessionKey(key);
+    anyRemoved = true;
+    if (key === activeSessionKey) removedActive = true;
+  }
+  if (removedActive) {
+    useScannerStore.setState({
+      activeSessionKey: null,
+      liveSessionText: "",
+      _lastAccepted: null,
+      lastCapturedCode: null,
+      lastCaptureAt: 0,
+    });
+  }
+  if (anyRemoved) useScannerStore.getState().bumpSessionsRevision();
 }
 
 export const useScannerStore = create<ScannerState>((set, get) => ({

@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import AppFooter from "@/components/AppFooter";
 import AppHeader from "@/components/AppHeader";
 import ClipboardIcon from "@/components/ClipboardIcon";
@@ -13,6 +20,7 @@ import {
   deleteSessionKey,
   listSessionStorageKeys,
   readSessionRaw,
+  removeSessionKeysWithZeroBarcodes,
   useScannerStore,
   writeSessionRaw,
 } from "@/store/useScannerStore";
@@ -59,9 +67,7 @@ export default function Home() {
   const [adminView, setAdminView] = useState<"main" | "list" | "detail">(
     "main"
   );
-  const [sessionKeys, setSessionKeys] = useState<string[]>(() =>
-    listSessionStorageKeys()
-  );
+  const [sessionKeys, setSessionKeys] = useState<string[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedText, setSelectedText] = useState("");
   const [copyDone, setCopyDone] = useState(false);
@@ -105,6 +111,12 @@ export default function Home() {
   const refreshList = useCallback(() => {
     setSessionKeys(listSessionStorageKeys());
   }, []);
+
+  useLayoutEffect(() => {
+    if (isScanMode || adminView !== "main") return;
+    removeSessionKeysWithZeroBarcodes();
+    setSessionKeys(listSessionStorageKeys());
+  }, [isScanMode, adminView]);
 
   useEffect(() => {
     return () => {
