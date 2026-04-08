@@ -11,11 +11,19 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import AppHeader from "@/components/AppHeader";
+import ClipboardIcon from "@/components/ClipboardIcon";
+import InstagramIcon from "@/components/InstagramIcon";
+import { useScanBeeps } from "@/hooks/useScanBeeps";
+import { INSTAGRAM_GARAM_LIB_URL } from "@/lib/brand";
+import { countSessionLines, toPlainSessionText } from "@/lib/sessionText";
 import { useScannerStore } from "@/store/useScannerStore";
 
 /** html5-qrcode 가 시각·비디오를 붙이는 요소 (요구사항 id) */
 const READER_ID = "reader";
 const DIGIT_ONLY = /^\d+$/;
+/** 카메라가 같은 프레임에서 비숫자를 연속 디코딩할 때 비프 스팸 방지 */
+const INVALID_BEEP_COOLDOWN_MS = 900;
 
 /** zoom 기능을 포함한 확장 타입 (표준 MediaTrackCapabilities 에 zoom 미포함) */
 interface ExtendedMediaTrackCapabilities extends MediaTrackCapabilities {
@@ -33,11 +41,6 @@ function isLikelyDesktop(): boolean {
   return !coarsePointer && !hasTouch;
 }
 
-/**
- * 소형 뷰파인더 + 거리 힌트
- * 박스를 화면의 22% 너비로 작게 유지해 사용자가 자연스럽게 폰을 멀리 잡도록 유도한다.
- * 모든 터치 이벤트는 통과(pointer-events-none).
- */
 function ViewfinderOverlay() {
   return (
     <div
@@ -48,7 +51,6 @@ function ViewfinderOverlay() {
         className="relative rounded-lg border-2 border-white/70"
         style={{ width: "22vw", aspectRatio: "1 / 1" }}
       >
-        {/* 모서리 강조선 */}
         <span className="absolute -left-px -top-px h-3 w-3 rounded-tl-lg border-l-2 border-t-2 border-emerald-400" />
         <span className="absolute -right-px -top-px h-3 w-3 rounded-tr-lg border-r-2 border-t-2 border-emerald-400" />
         <span className="absolute -bottom-px -left-px h-3 w-3 rounded-bl-lg border-b-2 border-l-2 border-emerald-400" />
@@ -82,6 +84,9 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const lastCaptureAt = useScannerStore((s) => s.lastCaptureAt);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const lastInvalidBeepAt = useRef(0);
+
+  const { playSuccess, playFailure, prime } = useScanBeeps();
 
   const [mode, setMode] = useState<"idle" | "loading" | "camera" | "mock">(
     "idle"
@@ -91,34 +96,94 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const [cameraRetryToken, setCameraRetryToken] = useState(0);
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
   const [permissionHint, setPermissionHint] = useState<string | null>(null);
+  const [sessionCopyDone, setSessionCopyDone] = useState(false);
+  const sessionCopyTimerRef = useRef<number | null>(null);
 
   const inSession = activeSessionKey !== null;
+  const totalBooks = countSessionLines(liveSessionText);
 
-  const triggerFeedback = useCallback((digits: string) => {
-    setFlashKey(Date.now());
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-      navigator.vibrate([100]);
-    }
-    setToast(`기록했어요: ${digits}`);
-    window.setTimeout(() => setToast(null), 1500);
+  useEffect(() => {
+    if (!inSession) return;
+    prime();
+  }, [inSession, prime]);
+
+  useEffect(() => {
+    return () => {
+      if (sessionCopyTimerRef.current !== null) {
+        window.clearTimeout(sessionCopyTimerRef.current);
+      }
+    };
   }, []);
+
+  const triggerFeedback = useCallback(
+    (digits: string) => {
+      playSuccess();
+      setFlashKey(Date.now());
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        navigator.vibrate([100]);
+      }
+      setToast(`기록했어요: ${digits}`);
+      window.setTimeout(() => setToast(null), 1500);
+    },
+    [playSuccess]
+  );
 
   const handleDecoded = useCallback(
     (text: string) => {
       const trimmed = text.trim();
-      if (!DIGIT_ONLY.test(trimmed)) return;
+      if (!trimmed) return;
+      if (!DIGIT_ONLY.test(trimmed)) {
+        const now = Date.now();
+        if (now - lastInvalidBeepAt.current >= INVALID_BEEP_COOLDOWN_MS) {
+          lastInvalidBeepAt.current = now;
+          playFailure();
+        }
+        return;
+      }
       const ok = appendDigitScanToActiveSession(trimmed);
       if (ok) triggerFeedback(trimmed);
+      else playFailure();
     },
-    [appendDigitScanToActiveSession, triggerFeedback]
+    [appendDigitScanToActiveSession, playFailure, triggerFeedback]
   );
+
+  const copyCurrentSession = useCallback(async () => {
+    const plain = toPlainSessionText(liveSessionText);
+    if (!plain) {
+      setToast("복사할 바코드가 없어요.");
+      window.setTimeout(() => setToast(null), 1600);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(plain);
+      setSessionCopyDone(true);
+      setToast("클립보드에 복사했어요. 민경 선생님께 붙여 넣어내면 돼요.");
+      window.setTimeout(() => setToast(null), 2200);
+      if (sessionCopyTimerRef.current !== null) {
+        window.clearTimeout(sessionCopyTimerRef.current);
+      }
+      sessionCopyTimerRef.current = window.setTimeout(
+        () => setSessionCopyDone(false),
+        2000
+      );
+    } catch {
+      window.alert(
+        "복사에 실패했습니다. 아래 목록을 길게 눌러 직접 복사해 주세요."
+      );
+    }
+  }, [liveSessionText]);
 
   const handleRequestCameraPermission = useCallback(async () => {
     if (isRequestingPermission) return;
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
       setToast("이 기기에서는 카메라 권한 요청을 지원하지 않습니다.");
       window.setTimeout(() => setToast(null), 1200);
-      setPermissionHint("이 기기/브라우저에서는 카메라 권한 요청이 지원되지 않습니다.");
+      setPermissionHint(
+        "이 기기/브라우저에서는 카메라 권한 요청이 지원되지 않습니다."
+      );
       return;
     }
 
@@ -233,12 +298,10 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           /back|rear|environment|wide/i.test(c.label)
         );
 
-        /* qrbox 생략 → 라이브러리 기본 쉐이딩 비활성화, 전역 프레임 디코딩 */
         const scanConfig = {
           fps: 12,
         };
 
-        /** FHD 이상 고해상도 요청 → 디코더가 더 선명한 픽셀을 받아 MFD 한계를 일부 완충 */
         const highResConstraints: MediaTrackConstraints = {
           facingMode: "environment",
           width: { ideal: 1920, min: 1280 },
@@ -264,7 +327,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
         if (!cancelled) {
           setMode("camera");
 
-          /** 스트림 안정화 후 디지털 줌 적용 (지원 기기만) */
           window.setTimeout(() => {
             try {
               const videoEl = document.querySelector(
@@ -334,6 +396,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const showMockPanel = inSession && mode === "mock";
   const showCameraLoading =
     inSession && !isLikelyDesktop() && mode === "loading";
+
   const handleExitSession = () => {
     if (
       !window.confirm(
@@ -362,26 +425,45 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {inSession && (
           <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
-            <header className="relative z-50 flex shrink-0 items-center justify-start gap-2 border-b border-zinc-800/80 bg-zinc-950/95 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md">
-              <button
-                type="button"
-                onClick={handleExitSession}
-                className="rounded-full border border-amber-700/80 bg-zinc-900 px-4 py-2 text-sm font-semibold text-amber-100 active:bg-zinc-800"
-              >
-                점검 중단
-              </button>
-            </header>
+            <AppHeader
+              rightSlot={
+                <button
+                  type="button"
+                  onClick={handleExitSession}
+                  className="min-h-14 min-w-[5.5rem] rounded-2xl border border-amber-700/80 bg-zinc-900 px-4 py-3 text-sm font-semibold text-amber-100 active:bg-zinc-800"
+                >
+                  점검 중단
+                </button>
+              }
+            />
 
             <div
               className="shrink-0 border-b border-zinc-800/80 bg-zinc-950/90 px-4 py-3 backdrop-blur-sm"
               aria-live="polite"
             >
+              <div className="mb-3 flex flex-col items-center border-b border-zinc-800/50 pb-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                  지금까지 점검
+                </p>
+                {lastCaptureAt > 0 ? (
+                  <p
+                    key={`total-${lastCaptureAt}`}
+                    className="scan-total-hit mt-1 text-2xl font-bold tabular-nums sm:text-3xl"
+                  >
+                    총 <span className="tabular-nums">{totalBooks}</span>권
+                  </p>
+                ) : (
+                  <p className="mt-1 text-2xl font-bold tabular-nums text-zinc-400 sm:text-3xl">
+                    총 <span className="tabular-nums">{totalBooks}</span>권
+                  </p>
+                )}
+              </div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
                 방금 인식
               </p>
               {lastCapturedCode ? (
                 <p
-                  key={lastCaptureAt}
+                  key={`code-${lastCaptureAt}`}
                   className="scan-live-code-hit mt-1 break-all text-center text-3xl font-bold tabular-nums tracking-tight text-emerald-300 sm:text-4xl"
                 >
                   {lastCapturedCode}
@@ -432,21 +514,21 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                           type="button"
                           onClick={() => void handleRequestCameraPermission()}
                           disabled={isRequestingPermission}
-                          className="w-full rounded-xl border border-emerald-700/70 bg-emerald-900/70 px-4 py-3 text-sm font-semibold text-emerald-100 transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                          className="min-h-14 w-full rounded-2xl border border-emerald-700/70 bg-emerald-900/70 px-4 py-3 text-base font-semibold text-emerald-100 transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {isRequestingPermission
                             ? "카메라 권한 확인 중..."
                             : "카메라 접근 허용하기"}
                         </button>
                         <p className="text-center text-xs text-zinc-500">
-                          설정에서 권한을 허용한 뒤 이 화면으로 돌아오면 자동으로 다시 확인합니다.
+                          설정에서 권한을 허용한 뒤 이 화면으로 돌아오면 자동으로
+                          다시 확인합니다.
                         </p>
                       </div>
                     )}
                   </div>
                 </div>
               )}
-
             </div>
           </div>
         )}
@@ -462,7 +544,30 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       )}
 
       {inSession && (
-        <div className="relative z-40 shrink-0 border-t border-zinc-800 bg-zinc-950/98 px-3 py-2">
+        <div className="relative z-40 shrink-0 border-t border-amber-500/10 bg-zinc-950/98 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
+          <div className="mb-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() => void copyCurrentSession()}
+              className={`flex min-h-14 min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl px-4 text-base font-semibold transition active:scale-[0.99] ${
+                sessionCopyDone
+                  ? "bg-emerald-600 text-white"
+                  : "border border-emerald-600/50 bg-emerald-950/50 text-emerald-100 active:bg-emerald-950/80"
+              }`}
+            >
+              <ClipboardIcon className="h-5 w-5 shrink-0 opacity-90" />
+              {sessionCopyDone ? "복사 완료" : "클립보드 복사"}
+            </button>
+            <a
+              href={INSTAGRAM_GARAM_LIB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-14 min-w-14 shrink-0 items-center justify-center rounded-2xl border border-pink-500/35 bg-zinc-900 text-pink-300 active:bg-zinc-800"
+              aria-label="가람고 도서관 인스타그램 (새 창)"
+            >
+              <InstagramIcon className="h-7 w-7" />
+            </a>
+          </div>
           <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
             이번 점검에 모은 번호
           </label>

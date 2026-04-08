@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AppFooter from "@/components/AppFooter";
+import AppHeader from "@/components/AppHeader";
+import ClipboardIcon from "@/components/ClipboardIcon";
 import Scanner from "@/components/Scanner";
+import {
+  countSessionLines,
+  toPlainSessionText,
+} from "@/lib/sessionText";
 import {
   deleteSessionKey,
   listSessionStorageKeys,
@@ -18,18 +25,6 @@ function formatSessionLabel(key: string): string {
     dateStyle: "medium",
     timeStyle: "medium",
   });
-}
-
-function lineCount(text: string): number {
-  return text.split("\n").filter((x) => x.trim().length > 0).length;
-}
-
-function toPlain(text: string): string {
-  return text
-    .split("\n")
-    .map((x) => x.trim())
-    .filter((x) => x.length > 0)
-    .join("\n");
 }
 
 type Screen = "main" | "scan" | "list" | "detail";
@@ -70,9 +65,22 @@ export default function Home() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedText, setSelectedText] = useState("");
   const [copyDone, setCopyDone] = useState(false);
+  const [inlineToast, setInlineToast] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
+  const inlineToastRef = useRef<number | null>(null);
   const skipNextPopConfirmRef = useRef(false);
   const didSetupHistoryRef = useRef(false);
+
+  const flashInlineToast = useCallback((msg: string) => {
+    setInlineToast(msg);
+    if (inlineToastRef.current !== null) {
+      window.clearTimeout(inlineToastRef.current);
+    }
+    inlineToastRef.current = window.setTimeout(() => {
+      setInlineToast(null);
+      inlineToastRef.current = null;
+    }, 2000);
+  }, []);
 
   const applyScreen = useCallback(
     (screen: Screen) => {
@@ -101,6 +109,9 @@ export default function Home() {
   useEffect(() => {
     return () => {
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      if (inlineToastRef.current !== null) {
+        window.clearTimeout(inlineToastRef.current);
+      }
     };
   }, []);
 
@@ -187,7 +198,7 @@ export default function Home() {
   };
 
   const onCopy = async () => {
-    const plain = toPlain(selectedText);
+    const plain = toPlainSessionText(selectedText);
     if (!plain) return;
     try {
       await copyText(plain);
@@ -199,10 +210,29 @@ export default function Home() {
     }
   };
 
-  const selectedCount = useMemo(() => lineCount(selectedText), [selectedText]);
+  const copyListSession = async (key: string) => {
+    const plain = toPlainSessionText(readSessionRaw(key));
+    if (!plain) {
+      flashInlineToast("복사할 바코드가 없어요.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(plain);
+      flashInlineToast("클립보드에 복사했어요.");
+    } catch {
+      window.alert(
+        "복사에 실패했습니다. 항목을 눌러 상세에서 직접 복사해 주세요."
+      );
+    }
+  };
+
+  const selectedCount = useMemo(
+    () => countSessionLines(selectedText),
+    [selectedText]
+  );
   const totalRecords = sessionKeys.length;
   const canCopyDetail = useMemo(
-    () => toPlain(selectedText).length > 0,
+    () => toPlainSessionText(selectedText).length > 0,
     [selectedText]
   );
 
@@ -222,36 +252,39 @@ export default function Home() {
   }
 
   return (
-    <main className="relative min-h-dvh overflow-hidden bg-zinc-950 text-zinc-100">
-      <div className="mx-auto flex min-h-dvh w-full max-w-4xl flex-col px-5 pb-8 pt-[max(1.25rem,env(safe-area-inset-top))]">
+    <main className="relative flex min-h-dvh flex-col overflow-hidden bg-zinc-950 text-zinc-100">
+      <AppHeader />
+
+      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-5 pb-4 pt-2">
         {adminView === "main" && (
           <section className="flex min-h-0 flex-1 flex-col">
-            <div className="rounded-3xl border border-zinc-800 bg-linear-to-b from-zinc-900 to-zinc-950 p-6 shadow-2xl shadow-black/30">
+            <div className="rounded-3xl border border-amber-500/15 bg-linear-to-b from-zinc-900 via-zinc-900/95 to-zinc-950 p-6 shadow-2xl shadow-black/30 ring-1 ring-emerald-900/20">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400/90">
                 {CLUB_NAME}
               </p>
               <p className="mt-1 text-xs leading-relaxed text-zinc-500">
                 {SCHOOL_NAME}
               </p>
-              <h1 className="mt-3 text-3xl font-bold tracking-tight text-white">
-                장서점검
-              </h1>
+              <h2 className="mt-3 text-2xl font-bold tracking-tight text-white sm:text-3xl">
+                장서점검 안내
+              </h2>
               <p className="mt-2 text-sm leading-relaxed text-zinc-400">
                 사서교사 민경 선생님과 함께 도서관을 돌보며, 빛나래 동아리
                 활동으로 장서를 점검할 때 쓰는 도구예요. 바코드(숫자)를 찍을
                 때마다 이 기기에 바로 쌓이고, 진행 방법이 헷갈리면 항상 선생님께
-                여쭤 보세요.
+                여쭤 보세요. 데이터는 이 앱 안에서 복사한 뒤, 메신저로
+                선생님께 붙여 넣어내면 돼요.
               </p>
             </div>
 
             <div
-              className="mt-5 rounded-2xl border border-zinc-800/90 bg-zinc-900/50 px-4 py-3"
+              className="mt-5 rounded-2xl border border-zinc-800/90 bg-zinc-900/50 px-4 py-4"
               aria-label="이용 안내"
             >
               <p className="text-xs font-semibold text-zinc-300">
                 이렇게 쓰면 편해요
               </p>
-              <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-zinc-500">
+              <ul className="mt-2 space-y-2 text-xs leading-relaxed text-zinc-500">
                 <li className="flex gap-2">
                   <span className="shrink-0 text-emerald-500/90" aria-hidden>
                     ·
@@ -287,7 +320,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={startWork}
-                className="flex min-h-16 items-center justify-center rounded-3xl bg-emerald-600 px-3 text-lg font-semibold text-white shadow-xl shadow-emerald-950/40 active:bg-emerald-700"
+                className="flex min-h-14 items-center justify-center rounded-3xl bg-emerald-600 px-4 py-4 text-lg font-semibold text-white shadow-xl shadow-emerald-950/40 active:bg-emerald-700"
               >
                 장서점검 시작
               </button>
@@ -297,7 +330,7 @@ export default function Home() {
                   setAdminView("list");
                   pushScreenHistory("list");
                 }}
-                className="flex min-h-16 items-center justify-center rounded-3xl border border-zinc-700 bg-zinc-900 px-3 text-base font-semibold text-zinc-100 active:bg-zinc-800"
+                className="flex min-h-14 items-center justify-center rounded-3xl border border-zinc-700 bg-zinc-900 px-4 py-4 text-base font-semibold text-zinc-100 active:bg-zinc-800"
               >
                 지난 점검 기록
                 {totalRecords > 0 ? ` (${totalRecords})` : ""}
@@ -312,14 +345,17 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => window.history.back()}
-                className="shrink-0 rounded-full border border-zinc-600 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-zinc-200 active:bg-zinc-800"
+                className="flex min-h-12 shrink-0 items-center justify-center rounded-full border border-zinc-600 bg-zinc-900 px-5 py-3 text-sm font-medium text-zinc-200 active:bg-zinc-800"
               >
                 뒤로
               </button>
               <div className="min-w-0 flex-1 text-center">
                 <h2 className="truncate text-base font-semibold text-zinc-100">
-                  지난 점검 기록
+                  세션 관리 · 지난 점검
                 </h2>
+                <p className="text-[11px] text-zinc-500">
+                  항목을 눌러 편집 · 오른쪽 아이콘으로 전체 복사
+                </p>
               </div>
               <span className="w-[64px] shrink-0 sm:w-[72px]" aria-hidden />
             </header>
@@ -335,18 +371,29 @@ export default function Home() {
                   {sessionKeys.map((key) => {
                     const raw = readSessionRaw(key);
                     return (
-                      <li key={key}>
+                      <li
+                        key={key}
+                        className="flex min-h-[3.75rem] items-stretch"
+                      >
                         <button
                           type="button"
                           onClick={() => openDetail(key)}
-                          className="flex w-full flex-col items-start px-4 py-3 text-left active:bg-zinc-800/70"
+                          className="flex min-h-[3.75rem] min-w-0 flex-1 flex-col items-start justify-center px-4 py-4 text-left active:bg-zinc-800/70"
                         >
                           <span className="text-sm font-semibold text-zinc-100">
                             {formatSessionLabel(key)}
                           </span>
                           <span className="text-xs text-zinc-500">
-                            바코드 {lineCount(raw)}권
+                            바코드 {countSessionLines(raw)}권
                           </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void copyListSession(key)}
+                          className="flex min-h-[3.75rem] min-w-[3.75rem] shrink-0 items-center justify-center border-l border-zinc-800 bg-zinc-900/50 text-emerald-400/95 active:bg-zinc-800/80"
+                          aria-label={`${formatSessionLabel(key)} 세션 바코드 전체 클립보드 복사`}
+                        >
+                          <ClipboardIcon className="h-6 w-6" />
                         </button>
                       </li>
                     );
@@ -363,7 +410,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => window.history.back()}
-                className="shrink-0 rounded-full border border-zinc-600 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-zinc-200 active:bg-zinc-800"
+                className="flex min-h-12 shrink-0 items-center justify-center rounded-full border border-zinc-600 bg-zinc-900 px-5 py-3 text-sm font-medium text-zinc-200 active:bg-zinc-800"
               >
                 뒤로
               </button>
@@ -380,7 +427,7 @@ export default function Home() {
                 aria-hidden
               />
             </header>
-            <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-3 px-4 py-4">
               <button
                 type="button"
                 onClick={onCopy}
@@ -390,18 +437,19 @@ export default function Home() {
                     ? undefined
                     : "복사할 숫자 줄이 없어요. 먼저 점검을 진행하거나 아래에 번호를 적어 주세요."
                 }
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                className={`flex min-h-14 items-center justify-center gap-2 rounded-2xl px-5 text-base font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
                   copyDone
                     ? "bg-emerald-600 text-white"
                     : "border border-zinc-600 bg-zinc-900 text-zinc-100 active:bg-zinc-800"
                 }`}
               >
-                {copyDone ? "복사 완료" : "번호 목록 복사"}
+                <ClipboardIcon className="h-5 w-5 shrink-0 opacity-90" />
+                {copyDone ? "복사 완료" : "클립보드 복사"}
               </button>
               <button
                 type="button"
                 onClick={onDelete}
-                className="rounded-full border border-red-900/70 bg-red-950/40 px-4 py-2 text-sm font-semibold text-red-100 active:bg-red-950/70"
+                className="min-h-14 rounded-2xl border border-red-900/70 bg-red-950/40 px-5 text-base font-semibold text-red-100 active:bg-red-950/70"
               >
                 이 기록 삭제
               </button>
@@ -417,12 +465,23 @@ export default function Home() {
                 spellCheck={false}
                 autoCorrect="off"
                 autoComplete="off"
-                className="h-full min-h-[40dvh] w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 outline-none ring-emerald-500/30 focus:ring-2"
+                className="h-full min-h-[40dvh] w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-3 font-mono text-sm text-zinc-100 outline-none ring-emerald-500/30 focus:ring-2"
               />
             </div>
           </section>
         )}
       </div>
+
+      {inlineToast && (
+        <div
+          className="pointer-events-none fixed bottom-24 left-1/2 z-[80] max-w-sm -translate-x-1/2 rounded-xl border border-emerald-500/35 bg-emerald-950/95 px-4 py-2 text-center text-sm text-emerald-100 shadow-lg"
+          role="status"
+        >
+          {inlineToast}
+        </div>
+      )}
+
+      <AppFooter className="mt-auto" />
     </main>
   );
 }
