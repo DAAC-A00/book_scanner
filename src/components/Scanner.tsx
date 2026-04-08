@@ -35,6 +35,76 @@ function isValidEAN13(code: string): boolean {
 /** 카메라가 같은 프레임에서 비숫자를 연속 디코딩할 때 비프 스팸 방지 */
 const INVALID_BEEP_COOLDOWN_MS = 900;
 const SCAN_INTERVAL_MS = 100;
+/** Quagga 입력 프레임 장변 상한(픽셀). ROI 스케일 후 적용되어 인코딩·디코드 비용을 줄임 */
+const QUAGGA_MAX_FRAME_EDGE = 720;
+/** Quagga ImageStream `size` (긴 변 기준 스케일 힌트, `QUAGGA_MAX_FRAME_EDGE`와 맞춤) */
+const QUAGGA_IMAGE_STREAM_SIZE = 720;
+const QUAGGA_JPEG_QUALITY = 0.88;
+
+function createQuaggaJpegWorker(): Worker | null {
+  if (typeof Worker === "undefined" || typeof OffscreenCanvas === "undefined") {
+    return null;
+  }
+  try {
+    const workerSource = `self.onmessage=async(e)=>{var id=e.data;var c=new OffscreenCanvas(id.width,id.height);var x=c.getContext("2d");if(!x){self.postMessage(null);return;}x.putImageData(id,0,0);try{var b=await c.convertToBlob({type:"image/jpeg",quality:${QUAGGA_JPEG_QUALITY}});self.postMessage(b);}catch(_){self.postMessage(null);}};`;
+    const blob = new Blob([workerSource], {
+      type: "application/javascript;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const worker = new Worker(url);
+    URL.revokeObjectURL(url);
+    return worker;
+  } catch {
+    return null;
+  }
+}
+
+function imageDataToJpegBlobInWorker(
+  worker: Worker,
+  imageData: ImageData
+): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    const finish = (blob: Blob | null) => {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+      resolve(blob);
+    };
+    const onMessage = (ev: MessageEvent<Blob | null>) => {
+      const d = ev.data;
+      finish(d instanceof Blob ? d : null);
+    };
+    const onError = () => finish(null);
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onError);
+    try {
+      worker.postMessage(imageData, [imageData.data.buffer]);
+    } catch {
+      finish(null);
+    }
+  });
+}
+
+async function canvasToJpegBlobMainThread(
+  canvas: HTMLCanvasElement
+): Promise<Blob | null> {
+  const q = QUAGGA_JPEG_QUALITY;
+  const el = canvas as HTMLCanvasElement & {
+    convertToBlob?: (options?: {
+      type?: string;
+      quality?: number;
+    }) => Promise<Blob>;
+  };
+  if (typeof el.convertToBlob === "function") {
+    try {
+      return await el.convertToBlob({ type: "image/jpeg", quality: q });
+    } catch {
+      /* fall through */
+    }
+  }
+  return new Promise((resolve) => {
+    canvas.toBlob((b) => resolve(b), "image/jpeg", q);
+  });
+}
 const UNSUPPORTED_MESSAGE =
   "이 브라우저는 네이티브 바코드 스캔을 지원하지 않습니다. Safari 17 이상이나 최신 Chrome을 사용해주세요.";
 const CAMERA_ERROR_TITLE = "카메라를 켤 수 없어요";
@@ -379,16 +449,20 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   useEffect(() => {
     if (!inSession || mode !== "camera") return;
 
+    const jpegWorker = createQuaggaJpegWorker();
+
     const pushEan13Consensus = (code: string) => {
+      const requiredHits = activeEngineRef.current === "native" ? 2 : 1;
       const buf = scanBufferRef.current;
       buf.push(code);
-      while (buf.length > 3) buf.shift();
+      while (buf.length > requiredHits) buf.shift();
+      const first = buf[0];
       if (
-        buf.length === 3 &&
-        buf[0] === buf[1] &&
-        buf[1] === buf[2]
+        buf.length === requiredHits &&
+        first !== undefined &&
+        buf.every((v) => v === first)
       ) {
-        handleDecoded(buf[0]);
+        handleDecoded(first);
         scanBufferRef.current = [];
       }
     };
@@ -426,36 +500,59 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           const cropH = Math.max(1, Math.floor(vh * 0.6));
           const sx = Math.floor((vw - cropW) / 2);
           const sy = Math.floor((vh - cropH) / 2);
-          if (canvas.width !== cropW) canvas.width = cropW;
-          if (canvas.height !== cropH) canvas.height = cropH;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) return;
-          ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
-
-          const frameDataUrl = canvas.toDataURL("image/jpeg", 0.92);
-          const result = await quagga.decodeSingle({
-            src: frameDataUrl,
-            locate: true,
-            numOfWorkers: 0,
-            inputStream: {
-              type: "ImageStream",
-              size: 960,
-            },
-            locator: {
-              patchSize: "medium",
-              halfSample: true,
-            },
-            decoder: {
-              readers: ["ean_reader", "ean_8_reader"],
-            },
+          const longEdge = Math.max(cropW, cropH);
+          const scale =
+            longEdge > QUAGGA_MAX_FRAME_EDGE
+              ? QUAGGA_MAX_FRAME_EDGE / longEdge
+              : 1;
+          const outW = Math.max(1, Math.floor(cropW * scale));
+          const outH = Math.max(1, Math.floor(cropH * scale));
+          if (canvas.width !== outW) canvas.width = outW;
+          if (canvas.height !== outH) canvas.height = outH;
+          const ctx = canvas.getContext("2d", {
+            willReadFrequently: true,
           });
-          const rawValue = result?.codeResult?.code?.trim();
-          if (
-            rawValue &&
-            DIGIT_ONLY.test(rawValue) &&
-            isValidEAN13(rawValue)
-          ) {
-            pushEan13Consensus(rawValue);
+          if (!ctx) return;
+          ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, outW, outH);
+
+          let jpegBlob: Blob | null = null;
+          if (jpegWorker) {
+            const frame = ctx.getImageData(0, 0, outW, outH);
+            jpegBlob = await imageDataToJpegBlobInWorker(jpegWorker, frame);
+          }
+          if (!jpegBlob) {
+            jpegBlob = await canvasToJpegBlobMainThread(canvas);
+          }
+          if (!jpegBlob) return;
+
+          const objectUrl = URL.createObjectURL(jpegBlob);
+          try {
+            const result = await quagga.decodeSingle({
+              src: objectUrl,
+              locate: true,
+              numOfWorkers: 0,
+              inputStream: {
+                type: "ImageStream",
+                size: QUAGGA_IMAGE_STREAM_SIZE,
+              },
+              locator: {
+                patchSize: "medium",
+                halfSample: true,
+              },
+              decoder: {
+                readers: ["ean_reader", "ean_8_reader"],
+              },
+            });
+            const rawValue = result?.codeResult?.code?.trim();
+            if (
+              rawValue &&
+              DIGIT_ONLY.test(rawValue) &&
+              isValidEAN13(rawValue)
+            ) {
+              pushEan13Consensus(rawValue);
+            }
+          } finally {
+            URL.revokeObjectURL(objectUrl);
           }
         }
       } catch {
@@ -474,6 +571,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       clearScanTimer();
       detectBusyRef.current = false;
       scanBufferRef.current = [];
+      jpegWorker?.terminate();
       if (quaggaRef.current?.stop) {
         try {
           quaggaRef.current.stop();
