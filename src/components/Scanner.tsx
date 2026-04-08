@@ -37,7 +37,7 @@ type BarcodeDetectorLike = {
 };
 type BarcodeDetectorLikeConstructor = {
   new (options?: {
-    formats?: BarcodeFormatValue[];
+    formats?: string[];
   }): BarcodeDetectorLike;
   getSupportedFormats?: () => Promise<string[]>;
 };
@@ -48,12 +48,18 @@ type ClientInfo = {
   browser: string;
   os: string;
 };
-type PolyfillModule = {
-  BarcodeDetectorPolyfill: new (options?: {
-    formats?: BarcodeFormatValue[];
-  }) => BarcodeDetectorLike;
+type QuaggaResultLike = {
+  codeResult?: {
+    code?: string | null;
+  } | null;
+} | null;
+type QuaggaLike = {
+  decodeSingle: (
+    config: Record<string, unknown>,
+    callback?: (result: QuaggaResultLike) => void
+  ) => Promise<QuaggaResultLike>;
+  stop?: () => void;
 };
-
 
 const shellStyle: CSSProperties = {
   minHeight: "100dvh",
@@ -75,11 +81,14 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const lastCaptureAt = useScannerStore((s) => s.lastCaptureAt);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const frameCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
+  const quaggaRef = useRef<QuaggaLike | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanTimerRef = useRef<number | null>(null);
   const detectBusyRef = useRef(false);
   const lastInvalidBeepAt = useRef(0);
+  const activeEngineRef = useRef<"native" | "quagga" | null>(null);
 
   const { playSuccess, playFailure, prime } = useScanBeeps();
 
@@ -176,7 +185,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
 
   const clearScanTimer = useCallback(() => {
     if (scanTimerRef.current === null) return;
-    window.clearTimeout(scanTimerRef.current);
+    window.clearInterval(scanTimerRef.current);
     scanTimerRef.current = null;
   }, []);
 
@@ -192,79 +201,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       directVideo.srcObject = null;
     }
     streamRef.current = null;
-  }, []);
-
-  const scheduleNextScan = useCallback(
-    (run: () => void) => {
-      clearScanTimer();
-      scanTimerRef.current = window.setTimeout(run, SCAN_INTERVAL_MS);
-    },
-    [clearScanTimer]
-  );
-
-  const startScanLoop = useCallback(() => {
-    const run = async () => {
-      const video = videoRef.current;
-      const detector = detectorRef.current;
-      if (!video || !detector) return;
-
-      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-        scheduleNextScan(run);
-        return;
-      }
-      if (detectBusyRef.current) {
-        scheduleNextScan(run);
-        return;
-      }
-
-      detectBusyRef.current = true;
-      try {
-        const result = await detector.detect(video);
-        const rawValue = result[0]?.rawValue?.trim();
-        if (rawValue && DIGIT_ONLY.test(rawValue)) {
-          handleDecoded(rawValue);
-        }
-      } catch {
-        /* ignore detection errors */
-      } finally {
-        detectBusyRef.current = false;
-        scheduleNextScan(run);
-      }
-    };
-    scheduleNextScan(run);
-  }, [handleDecoded, scheduleNextScan]);
-
-  const createDetector = useCallback(async () => {
-    const nativeCtor = (window as WindowWithBarcodeDetector).BarcodeDetector;
-    if (nativeCtor) {
-      try {
-        let formats = [...BARCODE_FORMATS];
-        if (typeof nativeCtor.getSupportedFormats === "function") {
-          const supported = await nativeCtor.getSupportedFormats();
-          const formatSet = new Set(supported);
-          formats = BARCODE_FORMATS.filter((fmt) => formatSet.has(fmt));
-        }
-        if (formats.length > 0) {
-          const detector = new nativeCtor({ formats });
-          return {
-            detector,
-            engineName: `네이티브 BarcodeDetector (${formats.join(", ")})`,
-          };
-        }
-      } catch {
-        /* native path failed; fallback to polyfill */
-      }
-    }
-
-    const polyfillModule = (await import(
-      "@undecaf/barcode-detector-polyfill"
-    )) as PolyfillModule;
-    const polyfillCtor = polyfillModule.BarcodeDetectorPolyfill;
-    const detector = new polyfillCtor({ formats: [...BARCODE_FORMATS] });
-    return {
-      detector,
-      engineName: `폴리필 BarcodeDetector (${BARCODE_FORMATS.join(", ")})`,
-    };
   }, []);
 
   useEffect(() => {
@@ -285,9 +221,12 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     if (!shouldRunCamera) {
       clearScanTimer();
       detectBusyRef.current = false;
+      activeEngineRef.current = null;
       detectorRef.current = null;
+      quaggaRef.current = null;
       stopCameraStream();
       setMode("idle");
+      setDetectorEngine("초기화 전");
       return;
     }
 
@@ -308,9 +247,36 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       }
 
       try {
-        const { detector, engineName } = await createDetector();
-        detectorRef.current = detector;
-        setDetectorEngine(engineName);
+        const nativeCtor = (window as WindowWithBarcodeDetector).BarcodeDetector;
+        let useNative = false;
+        let nativeFormats: string[] = [];
+
+        if (nativeCtor && typeof nativeCtor.getSupportedFormats === "function") {
+          try {
+            const supported = await nativeCtor.getSupportedFormats();
+            if (supported.includes("ean_13")) {
+              nativeFormats = BARCODE_FORMATS.filter((fmt) => supported.includes(fmt));
+              useNative = nativeFormats.length > 0;
+            }
+          } catch {
+            useNative = false;
+          }
+        }
+
+        if (useNative && nativeCtor) {
+          detectorRef.current = new nativeCtor({ formats: nativeFormats });
+          quaggaRef.current = null;
+          activeEngineRef.current = "native";
+          setDetectorEngine("Native BarcodeDetector");
+        } else {
+          const module = (await import("@ericblade/quagga2")) as {
+            default: QuaggaLike;
+          };
+          quaggaRef.current = module.default;
+          detectorRef.current = null;
+          activeEngineRef.current = "quagga";
+          setDetectorEngine("Quagga2 Fallback");
+        }
       } catch {
         if (!cancelled) {
           setMockTitle("스캔 엔진 초기화 실패");
@@ -365,25 +331,104 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       cancelled = true;
       clearScanTimer();
       detectBusyRef.current = false;
+      activeEngineRef.current = null;
       detectorRef.current = null;
+      if (quaggaRef.current?.stop) {
+        try {
+          quaggaRef.current.stop();
+        } catch {
+          /* ignore */
+        }
+      }
+      quaggaRef.current = null;
       stopCameraStream();
     };
-  }, [
-    activeSessionKey,
-    cameraRetryToken,
-    clearScanTimer,
-    createDetector,
-    stopCameraStream,
-  ]);
+  }, [activeSessionKey, cameraRetryToken, clearScanTimer, stopCameraStream]);
 
   useEffect(() => {
     if (!inSession || mode !== "camera") return;
-    startScanLoop();
+    const tick = async () => {
+      if (detectBusyRef.current) return;
+      const video = videoRef.current;
+      if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+
+      detectBusyRef.current = true;
+      try {
+        const engine = activeEngineRef.current;
+        if (engine === "native") {
+          const detector = detectorRef.current;
+          if (!detector) return;
+          const result = await detector.detect(video);
+          const rawValue = result[0]?.rawValue?.trim();
+          if (rawValue && DIGIT_ONLY.test(rawValue)) {
+            handleDecoded(rawValue);
+          }
+          return;
+        }
+
+        if (engine === "quagga") {
+          const quagga = quaggaRef.current;
+          const canvas = frameCanvasRef.current;
+          if (!quagga || !canvas) return;
+          const width = video.videoWidth || 1280;
+          const height = video.videoHeight || 720;
+          if (canvas.width !== width) canvas.width = width;
+          if (canvas.height !== height) canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.drawImage(video, 0, 0, width, height);
+
+          const frameDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+          const result = await quagga.decodeSingle({
+            src: frameDataUrl,
+            locate: true,
+            numOfWorkers: 0,
+            inputStream: {
+              type: "ImageStream",
+              size: 960,
+            },
+            locator: {
+              patchSize: "medium",
+              halfSample: true,
+            },
+            decoder: {
+              readers: ["ean_reader", "ean_8_reader"],
+            },
+          });
+          const rawValue = result?.codeResult?.code?.trim();
+          if (rawValue && DIGIT_ONLY.test(rawValue)) {
+            handleDecoded(rawValue);
+          }
+        }
+      } catch {
+        /* ignore decode errors */
+      } finally {
+        detectBusyRef.current = false;
+      }
+    };
+
+    clearScanTimer();
+    scanTimerRef.current = window.setInterval(() => {
+      void tick();
+    }, SCAN_INTERVAL_MS);
+
     return () => {
       clearScanTimer();
       detectBusyRef.current = false;
+      if (quaggaRef.current?.stop) {
+        try {
+          quaggaRef.current.stop();
+        } catch {
+          /* ignore */
+        }
+      }
+      const canvas = frameCanvasRef.current;
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
     };
-  }, [clearScanTimer, inSession, mode, startScanLoop]);
+  }, [clearScanTimer, handleDecoded, inSession, mode]);
 
   const showCameraArea = inSession;
   const showMockPanel = inSession && mode === "mock";
@@ -481,6 +526,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                   className="relative z-20 w-full shrink-0"
                   style={{ minHeight: "40dvh", height: "40dvh" }}
                 >
+                  <canvas ref={frameCanvasRef} className="hidden" aria-hidden />
                   <video
                     ref={videoRef}
                     autoPlay
