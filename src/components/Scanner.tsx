@@ -34,27 +34,6 @@ function isLikelyDesktop(): boolean {
   return !coarsePointer && !hasTouch;
 }
 
-function ViewfinderOverlay() {
-  return (
-    <div
-      className="pointer-events-none absolute inset-0 z-[45] flex flex-col items-center justify-center gap-2"
-      aria-hidden
-    >
-      <div
-        className="relative rounded-lg border-2 border-white/70"
-        style={{ width: "22vw", aspectRatio: "1 / 1" }}
-      >
-        <span className="absolute -left-px -top-px h-3 w-3 rounded-tl-lg border-l-2 border-t-2 border-emerald-400" />
-        <span className="absolute -right-px -top-px h-3 w-3 rounded-tr-lg border-r-2 border-t-2 border-emerald-400" />
-        <span className="absolute -bottom-px -left-px h-3 w-3 rounded-bl-lg border-b-2 border-l-2 border-emerald-400" />
-        <span className="absolute -bottom-px -right-px h-3 w-3 rounded-br-lg border-b-2 border-r-2 border-emerald-400" />
-      </div>
-      <p className="rounded-full bg-black/50 px-3 py-1 text-[11px] font-medium tracking-wide text-white/80 backdrop-blur-sm">
-        거리를 조금 띄워주세요
-      </p>
-    </div>
-  );
-}
 
 const shellStyle: CSSProperties = {
   minHeight: "100dvh",
@@ -251,30 +230,20 @@ export default function Scanner({ onExitSession }: ScannerProps) {
         }
         if (cancelled) return;
 
-        if (cameras.length > 0) {
-          // 1순위: 주력 후면 카메라 (ultra-wide·telephoto 제외한 일반 1x 렌즈)
-          // 2순위: back/rear/environment 포함된 카메라
-          // 3순위: 목록 마지막 카메라
-          const isMainBack = (label: string) =>
-            /back|rear|environment/i.test(label) &&
-            !/wide|tele|ultra|zoom/i.test(label);
-          const isAnyBack = (label: string) =>
-            /back|rear|environment/i.test(label);
-
-          const target =
-            cameras.find((c) => isMainBack(c.label)) ??
-            cameras.find((c) => isAnyBack(c.label)) ??
-            cameras[cameras.length - 1];
-          await scanner.start(target.id, scanConfig, handleDecoded, () => {});
-        } else {
-          // 카메라 목록을 못 얻어도 facingMode 로 직접 시도
-          await scanner.start(
-            { facingMode: "environment" },
-            scanConfig,
-            handleDecoded,
-            () => {}
-          );
+        if (cameras.length === 0) {
+          // 카메라 없음 (권한 거부 등)
+          if (!cancelled) setMode("mock");
+          return;
         }
+
+        // facingMode: "environment" 로 시작 — iOS가 주력 1x 후면 렌즈를 자동 선택
+        // 카메라 ID 직접 지정 시 라벨이 빈 문자열로 오면 엉뚱한 렌즈가 선택될 수 있음
+        await scanner.start(
+          { facingMode: "environment" },
+          scanConfig,
+          handleDecoded,
+          () => {}
+        );
 
         if (!cancelled) {
           setMode("camera");
@@ -407,7 +376,6 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                     className="relative z-10 w-full"
                     style={{ minHeight: "40dvh" }}
                   />
-                  {mode === "camera" && <ViewfinderOverlay />}
 
                   {/* 로딩 오버레이 */}
                   {showCameraLoading && (

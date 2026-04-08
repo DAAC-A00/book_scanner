@@ -70,24 +70,22 @@
   animation: scan-total-hit 0.55s ease-out forwards;
 }
 
-/* html5-qrcode 마운트 대상: 뷰파인더가 레이아웃·비디오에 잡히도록 */
+/* html5-qrcode 마운트 대상 */
 #reader {
   width: 100%;
-  min-width: 60vw;
   max-width: 100%;
-  min-height: 60dvh;
-  flex: 1 1 auto;
   position: relative;
   z-index: 20;
   overflow: hidden;
   background: rgb(9 9 11);
 }
 
+/* object-fit: contain → 비디오 원본 시야각 그대로 표시 (cover 사용 시 강제 확대·크롭 발생) */
 #reader video {
   width: 100% !important;
-  height: 100% !important;
-  min-height: min(60dvh, 100%);
-  object-fit: cover;
+  height: auto !important;
+  display: block;
+  object-fit: contain;
 }
 
 /* 커스텀 스코프 오버레이만 사용 — 라이브러리 기본 쉐이딩이 남는 경우 숨김 */
