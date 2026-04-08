@@ -46,6 +46,53 @@ type BarcodeDetectorLikeConstructor = {
 type WindowWithBarcodeDetector = Window & {
   BarcodeDetector?: BarcodeDetectorLikeConstructor;
 };
+
+/** iOS/Android 등에서 확장되는 비디오 트랙 capability (lib.dom 미반영 필드) */
+type VideoTrackCapabilities = MediaTrackCapabilities & {
+  zoom?: { min?: number; max?: number; step?: number };
+  focusMode?: string[];
+};
+
+async function applyVideoTrackScanOptimizations(track: MediaStreamTrack) {
+  const getCaps = track.getCapabilities?.bind(track);
+  if (typeof getCaps !== "function") return;
+
+  let caps: VideoTrackCapabilities;
+  try {
+    caps = getCaps() as VideoTrackCapabilities;
+  } catch {
+    return;
+  }
+
+  let zoom: number | undefined;
+  const z = caps.zoom;
+  if (z && typeof z === "object") {
+    const devLo = z.min ?? 1;
+    const devHi = z.max ?? 1;
+    const bandLo = Math.max(1.5, devLo);
+    const bandHi = Math.min(2.0, devHi);
+    if (bandLo <= bandHi) {
+      zoom = bandHi;
+    }
+  }
+
+  const focusContinuous =
+    Array.isArray(caps.focusMode) && caps.focusMode.includes("continuous");
+
+  const advanced: Record<string, unknown> = {};
+  if (zoom !== undefined) advanced.zoom = zoom;
+  if (focusContinuous) advanced.focusMode = "continuous";
+
+  if (Object.keys(advanced).length === 0) return;
+
+  try {
+    await track.applyConstraints({
+      advanced: [advanced as MediaTrackConstraintSet],
+    });
+  } catch {
+    /* iOS Safari 등: 미지원 시 카메라는 그대로 사용 */
+  }
+}
 type ClientInfo = {
   browser: string;
   os: string;
@@ -317,14 +364,19 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           audio: false,
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
+            width: { min: 1280, ideal: 1920, max: 3840 },
+            height: { min: 720, ideal: 1080, max: 2160 },
           },
         });
 
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
           return;
+        }
+
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+          await applyVideoTrackScanOptimizations(videoTrack);
         }
 
         streamRef.current = stream;
