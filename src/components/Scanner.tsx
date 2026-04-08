@@ -12,25 +12,8 @@ import { useScanBeeps } from "@/hooks/useScanBeeps";
 import { countSessionLines } from "@/lib/sessionText";
 import { useScannerStore } from "@/store/useScannerStore";
 
-const DIGIT_ONLY = /^\d+$/;
-
-/**
- * EAN-13(13자리) 체크섬 검증.
- * 앞 12자리에 대해 (홀 번째 자리 합×1 + 짝 번째 자리 합×3)의 mod 10 보완값이 13번째 자리와 일치하는지 확인한다.
- */
-function isValidEAN13(code: string): boolean {
-  if (code.length !== 13) return false;
-  let sum = 0;
-  for (let i = 0; i < 12; i++) {
-    const d = code.charCodeAt(i) - 48;
-    if (d < 0 || d > 9) return false;
-    sum += d * (i % 2 === 0 ? 1 : 3);
-  }
-  const checkDigit = (10 - (sum % 10)) % 10;
-  const last = code.charCodeAt(12) - 48;
-  if (last < 0 || last > 9) return false;
-  return last === checkDigit;
-}
+/** 도서관·상품 공통: 숫자만, 5~13자리 */
+const VALID_BARCODE = /^\d{5,13}$/;
 
 /** 카메라가 같은 프레임에서 비숫자를 연속 디코딩할 때 비프 스팸 방지 */
 const INVALID_BEEP_COOLDOWN_MS = 900;
@@ -194,7 +177,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
-      if (!DIGIT_ONLY.test(trimmed)) {
+      if (!VALID_BARCODE.test(trimmed)) {
         const now = Date.now();
         if (now - lastInvalidBeepAt.current >= INVALID_BEEP_COOLDOWN_MS) {
           lastInvalidBeepAt.current = now;
@@ -284,7 +267,11 @@ export default function Scanner({ onExitSession }: ScannerProps) {
         if (nativeCtor && typeof nativeCtor.getSupportedFormats === "function") {
           try {
             const supported = await nativeCtor.getSupportedFormats();
-            if (supported.includes("ean_13")) {
+            const canUseNativeFormats =
+              supported.includes("ean_13") ||
+              supported.includes("code_128") ||
+              supported.includes("code_39");
+            if (canUseNativeFormats) {
               nativeFormats = BARCODE_FORMATS.filter((fmt) => supported.includes(fmt));
               useNative = nativeFormats.length > 0;
             }
@@ -379,7 +366,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   useEffect(() => {
     if (!inSession || mode !== "camera") return;
 
-    const pushEan13Consensus = (code: string, engine: "native" | "quagga") => {
+    const pushScanConsensus = (code: string, engine: "native" | "quagga") => {
       const buf = scanBufferRef.current;
       const requiredHits = engine === "native" ? 2 : 2;
       buf.push(code);
@@ -404,12 +391,8 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           if (!detector) return;
           const result = await detector.detect(video);
           const rawValue = result[0]?.rawValue?.trim();
-          if (
-            rawValue &&
-            DIGIT_ONLY.test(rawValue) &&
-            isValidEAN13(rawValue)
-          ) {
-            pushEan13Consensus(rawValue, "native");
+          if (rawValue && VALID_BARCODE.test(rawValue)) {
+            pushScanConsensus(rawValue, "native");
           }
           return;
         }
@@ -450,19 +433,20 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                 halfSample: true,
               },
               decoder: {
-                readers: ["ean_reader", "ean_8_reader"],
+                readers: [
+                  "code_128_reader",
+                  "code_39_reader",
+                  "ean_reader",
+                  "ean_8_reader",
+                ],
               },
             });
           } finally {
             URL.revokeObjectURL(objectUrl);
           }
           const rawValue = result?.codeResult?.code?.trim();
-          if (
-            rawValue &&
-            DIGIT_ONLY.test(rawValue) &&
-            isValidEAN13(rawValue)
-          ) {
-            pushEan13Consensus(rawValue, "quagga");
+          if (rawValue && VALID_BARCODE.test(rawValue)) {
+            pushScanConsensus(rawValue, "quagga");
           }
         }
       } catch {
