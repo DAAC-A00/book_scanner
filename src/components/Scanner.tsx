@@ -35,11 +35,23 @@ type DetectedBarcodeLike = { rawValue?: string | null };
 type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource) => Promise<DetectedBarcodeLike[]>;
 };
-type BarcodeDetectorLikeConstructor = new (options?: {
-  formats?: BarcodeFormatValue[];
-}) => BarcodeDetectorLike;
+type BarcodeDetectorLikeConstructor = {
+  new (options?: {
+    formats?: BarcodeFormatValue[];
+  }): BarcodeDetectorLike;
+  getSupportedFormats?: () => Promise<string[]>;
+};
 type WindowWithBarcodeDetector = Window & {
   BarcodeDetector?: BarcodeDetectorLikeConstructor;
+};
+type ClientInfo = {
+  browser: string;
+  os: string;
+};
+type PolyfillModule = {
+  BarcodeDetectorPolyfill: new (options?: {
+    formats?: BarcodeFormatValue[];
+  }) => BarcodeDetectorLike;
 };
 
 
@@ -76,6 +88,11 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   );
   const [mockTitle, setMockTitle] = useState(CAMERA_ERROR_TITLE);
   const [mockMessage, setMockMessage] = useState(CAMERA_ERROR_HINT);
+  const [clientInfo, setClientInfo] = useState<ClientInfo>({
+    browser: "확인 중...",
+    os: "확인 중...",
+  });
+  const [detectorEngine, setDetectorEngine] = useState("초기화 전");
   const [flashKey, setFlashKey] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [cameraRetryToken, setCameraRetryToken] = useState(0);
@@ -87,6 +104,39 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     if (!inSession) return;
     prime();
   }, [inSession, prime]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    const ua = navigator.userAgent;
+
+    const browser = (() => {
+      const edge = ua.match(/Edg\/([\d.]+)/);
+      if (edge) return `Edge ${edge[1]}`;
+      const crios = ua.match(/CriOS\/([\d.]+)/);
+      if (crios) return `Chrome ${crios[1]}`;
+      const chrome = ua.match(/Chrome\/([\d.]+)/);
+      if (chrome) return `Chrome ${chrome[1]}`;
+      const firefox = ua.match(/FxiOS\/([\d.]+)|Firefox\/([\d.]+)/);
+      if (firefox) return `Firefox ${firefox[1] ?? firefox[2]}`;
+      const safari = ua.match(/Version\/([\d.]+).*Safari/);
+      if (safari) return `Safari ${safari[1]}`;
+      return "알 수 없는 브라우저";
+    })();
+
+    const os = (() => {
+      const ios = ua.match(/OS (\d+[_\d]*) like Mac OS X/);
+      if (ios) return `iOS ${ios[1].replaceAll("_", ".")}`;
+      const android = ua.match(/Android ([\d.]+)/);
+      if (android) return `Android ${android[1]}`;
+      const mac = ua.match(/Mac OS X ([\d_]+)/);
+      if (mac) return `macOS ${mac[1].replaceAll("_", ".")}`;
+      const windows = ua.match(/Windows NT ([\d.]+)/);
+      if (windows) return `Windows NT ${windows[1]}`;
+      return navigator.platform || "알 수 없는 OS";
+    })();
+
+    setClientInfo({ browser, os });
+  }, []);
 
   const triggerFeedback = useCallback(
     (digits: string) => {
@@ -184,6 +234,39 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     scheduleNextScan(run);
   }, [handleDecoded, scheduleNextScan]);
 
+  const createDetector = useCallback(async () => {
+    const nativeCtor = (window as WindowWithBarcodeDetector).BarcodeDetector;
+    if (nativeCtor) {
+      try {
+        let formats = [...BARCODE_FORMATS];
+        if (typeof nativeCtor.getSupportedFormats === "function") {
+          const supported = await nativeCtor.getSupportedFormats();
+          const formatSet = new Set(supported);
+          formats = BARCODE_FORMATS.filter((fmt) => formatSet.has(fmt));
+        }
+        if (formats.length > 0) {
+          const detector = new nativeCtor({ formats });
+          return {
+            detector,
+            engineName: `네이티브 BarcodeDetector (${formats.join(", ")})`,
+          };
+        }
+      } catch {
+        /* native path failed; fallback to polyfill */
+      }
+    }
+
+    const polyfillModule = (await import(
+      "@undecaf/barcode-detector-polyfill"
+    )) as PolyfillModule;
+    const polyfillCtor = polyfillModule.BarcodeDetectorPolyfill;
+    const detector = new polyfillCtor({ formats: [...BARCODE_FORMATS] });
+    return {
+      detector,
+      engineName: `폴리필 BarcodeDetector (${BARCODE_FORMATS.join(", ")})`,
+    };
+  }, []);
+
   useEffect(() => {
     if (!inSession || mode !== "mock") return;
 
@@ -224,20 +307,10 @@ export default function Scanner({ onExitSession }: ScannerProps) {
         return;
       }
 
-      const BarcodeDetectorCtor = (window as WindowWithBarcodeDetector).BarcodeDetector;
-      if (!BarcodeDetectorCtor) {
-        if (!cancelled) {
-          setMockTitle("지원되지 않는 브라우저");
-          setMockMessage(UNSUPPORTED_MESSAGE);
-          setMode("mock");
-        }
-        return;
-      }
-
       try {
-        detectorRef.current = new BarcodeDetectorCtor({
-          formats: [...BARCODE_FORMATS],
-        });
+        const { detector, engineName } = await createDetector();
+        detectorRef.current = detector;
+        setDetectorEngine(engineName);
       } catch {
         if (!cancelled) {
           setMockTitle("스캔 엔진 초기화 실패");
@@ -295,7 +368,13 @@ export default function Scanner({ onExitSession }: ScannerProps) {
       detectorRef.current = null;
       stopCameraStream();
     };
-  }, [activeSessionKey, cameraRetryToken, clearScanTimer, stopCameraStream]);
+  }, [
+    activeSessionKey,
+    cameraRetryToken,
+    clearScanTimer,
+    createDetector,
+    stopCameraStream,
+  ]);
 
   useEffect(() => {
     if (!inSession || mode !== "camera") return;
@@ -382,6 +461,18 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                   주세요.
                 </p>
               )}
+              <div className="mt-3 rounded-lg border border-zinc-800/70 bg-zinc-900/60 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                  디버그 정보
+                </p>
+                <p className="mt-1 text-[11px] text-zinc-300">
+                  브라우저: {clientInfo.browser}
+                </p>
+                <p className="text-[11px] text-zinc-300">OS: {clientInfo.os}</p>
+                <p className="text-[11px] text-zinc-400">
+                  스캔 엔진: {detectorEngine}
+                </p>
+              </div>
             </div>
 
             <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto">
