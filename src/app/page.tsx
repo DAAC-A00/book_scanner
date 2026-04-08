@@ -51,6 +51,33 @@ function screenFromState(state: unknown): Screen | null {
   return null;
 }
 
+/** popstate / confirm 직후 동기 history.back()은 무시되는 경우가 있어 비동기로 한 번 더 시도한다. */
+function scheduleLeaveHostedApp(resetSkipFlag: () => void) {
+  window.setTimeout(() => {
+    window.history.back();
+    window.setTimeout(() => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "visible"
+      ) {
+        const n = window.history.length;
+        if (n > 1) {
+          window.history.go(1 - n);
+        }
+        window.setTimeout(() => {
+          window.history.back();
+          try {
+            window.close();
+          } catch {
+            /* 일부 브라우저·PWA는 close를 허용하지 않음 */
+          }
+        }, 0);
+      }
+      resetSkipFlag();
+    }, 200);
+  }, 0);
+}
+
 async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
 }
@@ -138,7 +165,9 @@ export default function Home() {
 
           if (window.confirm("첫 화면을 나가 앱을 닫을까요?")) {
             skipNextPopConfirmRef.current = true;
-            window.history.back();
+            scheduleLeaveHostedApp(() => {
+              skipNextPopConfirmRef.current = false;
+            });
             return;
           }
           window.history.pushState(
