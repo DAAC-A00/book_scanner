@@ -420,8 +420,8 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           if (!quagga || !canvas) return;
           const vw = video.videoWidth || 1280;
           const vh = video.videoHeight || 720;
-          const cropW = Math.max(1, Math.floor(vw * 0.6));
-          const cropH = Math.max(1, Math.floor(vh * 0.6));
+          const cropW = Math.max(1, Math.floor(vw * 0.9));
+          const cropH = Math.max(1, Math.floor(vh * 0.9));
           const sx = Math.floor((vw - cropW) / 2);
           const sy = Math.floor((vh - cropH) / 2);
           if (canvas.width !== cropW) canvas.width = cropW;
@@ -598,6 +598,20 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                     muted
                     className="relative z-10 h-full w-full bg-zinc-900 object-cover"
                   />
+
+                  {/* Quagga ROI(중앙 90%) 가이드라인 오버레이 */}
+                  <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
+                    <div
+                      className="relative h-[90%] w-[90%] rounded-2xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]"
+                      aria-hidden
+                    >
+                      {/* corners */}
+                      <span className="absolute left-0 top-0 h-6 w-6 border-l-4 border-t-4 border-emerald-400" />
+                      <span className="absolute right-0 top-0 h-6 w-6 border-r-4 border-t-4 border-emerald-400" />
+                      <span className="absolute bottom-0 left-0 h-6 w-6 border-b-4 border-l-4 border-emerald-400" />
+                      <span className="absolute bottom-0 right-0 h-6 w-6 border-b-4 border-r-4 border-emerald-400" />
+                    </div>
+                  </div>
 
                   {/* 로딩 오버레이 */}
                   {showCameraLoading && (
