@@ -135,6 +135,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const lastInvalidBeepAt = useRef(0);
   const activeEngineRef = useRef<"native" | "quagga" | null>(null);
   const scanBufferRef = useRef<string[]>([]);
+  const hasVibrationSupportRef = useRef(false);
 
   const { playSuccess, playFailure, prime } = useScanBeeps();
 
@@ -147,6 +148,8 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     browser: "확인 중...",
     os: "확인 중...",
   });
+  const [vibrationSupportLabel, setVibrationSupportLabel] =
+    useState("확인 중...");
   const [detectorEngine, setDetectorEngine] = useState("초기화 전");
   const [flashKey, setFlashKey] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -199,6 +202,9 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     })();
 
     setClientInfo({ browser, os });
+    const supportsVibration = typeof navigator.vibrate === "function";
+    hasVibrationSupportRef.current = supportsVibration;
+    setVibrationSupportLabel(supportsVibration ? "지원" : "미지원");
   }, []);
 
   useEffect(() => {
@@ -212,20 +218,24 @@ export default function Scanner({ onExitSession }: ScannerProps) {
 
   const vibrateOnSuccess = useCallback(() => {
     if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") {
-      return;
+      return false;
     }
     try {
-      navigator.vibrate(SUCCESS_VIBRATION_PATTERN);
+      const didVibrate = navigator.vibrate(SUCCESS_VIBRATION_PATTERN);
+      hasVibrationSupportRef.current = didVibrate;
+      return didVibrate;
     } catch {
       /* 지원하지 않는 환경에서는 조용히 무시 */
+      hasVibrationSupportRef.current = false;
+      return false;
     }
   }, []);
 
   const triggerFeedback = useCallback(
     (digits: string) => {
       playSuccess();
+      void vibrateOnSuccess();
       setFlashKey(Date.now());
-      vibrateOnSuccess();
       setToast(`기록했어요: ${digits}`);
       window.setTimeout(() => setToast(null), 1500);
     },
@@ -761,6 +771,9 @@ export default function Scanner({ onExitSession }: ScannerProps) {
               브라우저: {clientInfo.browser}
             </p>
             <p className="mt-1 text-[11px] text-zinc-300">OS: {clientInfo.os}</p>
+            <p className="mt-1 text-[11px] text-zinc-400">
+              진동 API: {vibrationSupportLabel}
+            </p>
             <p className="mt-1 text-[11px] text-zinc-400">
               스캔 엔진: {detectorEngine}
             </p>
