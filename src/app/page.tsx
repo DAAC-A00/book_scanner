@@ -247,7 +247,7 @@ export default function Home() {
 
   if (isScanMode) {
     return (
-      <main className="relative min-h-dvh overflow-hidden bg-black text-white">
+      <main className="relative flex min-h-dvh flex-col overflow-hidden bg-zinc-950 text-zinc-100">
         <Scanner
           onExitSession={() => {
             setIsScanMode(false);

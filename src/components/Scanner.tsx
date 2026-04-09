@@ -6,7 +6,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
 } from "react";
 import AppHeader from "@/components/AppHeader";
 import { useScanBeeps } from "@/hooks/useScanBeeps";
@@ -109,11 +108,6 @@ type QuaggaLike = {
     callback?: (result: QuaggaResultLike) => void
   ) => Promise<QuaggaResultLike>;
   stop?: () => void;
-};
-
-const shellStyle: CSSProperties = {
-  minHeight: "100dvh",
-  maxHeight: "100dvh",
 };
 
 type ScannerProps = {
@@ -551,10 +545,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   };
 
   return (
-    <div
-      className="isolate flex w-full flex-col overflow-hidden bg-zinc-950 text-zinc-100"
-      style={shellStyle}
-    >
+    <div className="isolate flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
       {flashKey != null && (
         <div
           key={flashKey}
