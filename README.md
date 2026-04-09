@@ -10,16 +10,18 @@
 - **스캔 즉시 저장** — 유효한 숫자가 인식될 때마다 `localStorage`에 바로 append. 점검 중단 시 일괄 저장하지 않음.
 - **점검 중단** — 확인 팝업 없이 즉시 세션 종료 후 첫 화면으로 복귀.
 - **메인 정리** — 메인으로 들어올 때 바코드 0건인 세션은 `removeSessionKeysWithZeroBarcodes()`로 제거 후 건수·목록 반영.
+- **첫 화면 뒤로가기** — 히스토리 루트에서 뒤로가기 시 확인 없이 앱 이탈 시퀀스 실행.
 - **지난 점검 기록** — 목록에서 항목을 열어 상세의 textarea로 조회·수정·삭제. **클립보드 복사는 상세에서만**(목록 행·점검 중 화면에서는 복사 없음).
-- **점검 중 표시** — 하단 누적 줄은 읽기 전용(스캔으로만 갱신).
+- **점검 중 표시** — 하단 누적 줄은 읽기 전용(스캔으로만 갱신), 스캔 추가 시 **자동으로 맨 아래로 스크롤**.
 - **연속 스캔** — 세션 유지 중 바코드만 비추면 반복 인식(별도 셔터 없음).
-- **검증 강화** — `trim` 후 `/^\d+$/` + EAN-13 체크섬을 모두 통과한 값만 저장.
+- **검증** — 스캔 UI에서 `trim` 후 **`/^\d{5,13}$/`** 만 합의·저장 후보로 사용. 스토어에서 **`/^\d+$/`** 재검증 및 **동일 코드 ~2초 쿨다운**.
 - **오인식 방지** — 유효 코드가 2회 연속 동일할 때만 확정 저장(멀티 프레임 합의).
-- **중앙 ROI 스캔** — Quagga는 중앙 90% 영역만 디코딩하고, 화면에도 90% 가이드 박스를 표시.
+- **중앙 ROI 스캔(Quagga)** — 비디오 중앙을 **가로 90% × 세로 72%**로 크롭해 디코딩하고, 뷰파인더 가이드와 동일 비율. `decodeSingle`은 버퍼 **1280**·`halfSample: false`·`patchSize: "large"`로 작은 바코드 인식을 보강.
+- **카메라** — 가능한 경우 고해상도·디지털 줌·연속 초점 제약을 시도(미지원 기기는 무시).
 - **피드백** — 진동(지원 기기), 테두리 녹색 플래시, 토스트, Web Audio 비프(`useScanBeeps`).
 - **라이브 표시** — 스캔 중 권수·「방금 인식」대형 숫자 + 강조 애니메이션.
 - **디버그 팝업 분리** — 상단 `i` 버튼으로만 디버그 정보를 열어 카메라 화면을 넓게 유지.
-- **데스크톱** — 터치 환경이 아니면 가상 숫자 스캔으로 테스트.
+- **카메라 실패 시** — 안내 목업과「카메라 다시 연결하기」버튼(가상 숫자 입력 데모는 없음).
 
 ## 기술 스택
 
@@ -34,9 +36,11 @@
 
 ## 시작하기
 
+패키지 매니저는 **pnpm** 기준입니다. `npm`/`yarn`을 쓰면 각 도구에 맞게 설치하세요.
+
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 브라우저에서 [http://localhost:3000](http://localhost:3000) 을 엽니다. 개발 모드에서는 PWA 서비스 워커가 비활성화되어 있습니다.
@@ -44,16 +48,20 @@ npm run dev
 ## 빌드
 
 ```bash
-npm run build
-npm start
+pnpm build
+pnpm start
 ```
 
 ## 프로젝트 구조 (요약)
 
-- `src/app/` — App Router 레이아웃·페이지
-- `src/components/Scanner.tsx` — 카메라/목업, 라이브 패널, 읽기 전용 누적 영역, 토스트, 비프 훅 연동
-- `src/store/useScannerStore.ts` — 세션 생명주기, `localStorage` append/동기, 세션 키·빈 세션 정리 유틸
-- `src/hooks/useScanBeeps.ts` — 스캔 성공/실패 짧은 톤
+- `src/app/layout.tsx` — 폰트·viewport·PWA 메타
+- `src/app/page.tsx` — 메인·지난 점검 목록/상세·스캔 모드 전환, 히스토리·뒤로가기·클립보드(상세만)
+- `src/components/Scanner.tsx` — 카메라/목업, 라이브 패널, 읽기 전용 누적, 토스트, 비프
+- `src/components/AppHeader.tsx` / `AppFooter.tsx` — 공통 헤더, 푸터(인스타 링크 등)
+- `src/store/useScannerStore.ts` — 세션 생명주기, `localStorage` append/동기, 세션 키·빈 세션 정리
+- `src/hooks/useScanBeeps.ts` — 스캔 성공/실패 톤
+- `src/lib/sessionText.ts` — 줄 수·클립보드용 정규화
+- `src/lib/brand.ts` — 푸터 외부 링크 상수
 - `public/manifest.json` — PWA 메타데이터
 
 자세한 요구·로드맵은 [PRD.md](./PRD.md)를 참고하세요.

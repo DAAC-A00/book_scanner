@@ -32,7 +32,6 @@ const BARCODE_FORMATS = [
   "code_39",
 ] as const;
 
-type BarcodeFormatValue = (typeof BARCODE_FORMATS)[number];
 type DetectedBarcodeLike = { rawValue?: string | null };
 type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource) => Promise<DetectedBarcodeLike[]>;
@@ -336,10 +335,10 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           activeEngineRef.current = "native";
           setDetectorEngine("Native BarcodeDetector");
         } else {
-          const module = (await import("@ericblade/quagga2")) as {
+          const quagga2Pkg = (await import("@ericblade/quagga2")) as {
             default: QuaggaLike;
           };
-          quaggaRef.current = module.default;
+          quaggaRef.current = quagga2Pkg.default;
           detectorRef.current = null;
           activeEngineRef.current = "quagga";
           setDetectorEngine("Quagga2 Fallback");
@@ -458,8 +457,11 @@ export default function Scanner({ onExitSession }: ScannerProps) {
           if (!quagga || !canvas) return;
           const vw = video.videoWidth || 1280;
           const vh = video.videoHeight || 720;
-          const cropW = Math.max(1, Math.floor(vw * 0.9));
-          const cropH = Math.max(1, Math.floor(vh * 0.9));
+          /** 중앙 ROI: 가로 넓게·세로는 좁혀 같은 프레임에서 바코드에 더 많은 가로 픽셀을 할당 (Quagga 뷰파인더와 동일 비율) */
+          const roiWidthFrac = 0.9;
+          const roiHeightFrac = 0.72;
+          const cropW = Math.max(1, Math.floor(vw * roiWidthFrac));
+          const cropH = Math.max(1, Math.floor(vh * roiHeightFrac));
           const sx = Math.floor((vw - cropW) / 2);
           const sy = Math.floor((vh - cropH) / 2);
           if (canvas.width !== cropW) canvas.width = cropW;
@@ -481,11 +483,11 @@ export default function Scanner({ onExitSession }: ScannerProps) {
               numOfWorkers: 0,
               inputStream: {
                 type: "ImageStream",
-                size: 960,
+                size: 1280,
               },
               locator: {
-                patchSize: "medium",
-                halfSample: true,
+                patchSize: "large",
+                halfSample: false,
               },
               decoder: {
                 readers: [
@@ -636,10 +638,10 @@ export default function Scanner({ onExitSession }: ScannerProps) {
                     className="absolute inset-0 z-10 h-full w-full bg-zinc-900 object-cover"
                   />
 
-                  {/* Quagga ROI(중앙 90%) 가이드라인 오버레이 */}
+                  {/* Quagga ROI(중앙, 가로 90% × 세로 72%) 가이드라인 오버레이 */}
                   <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
                     <div
-                      className="relative h-[90%] w-[90%] rounded-2xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]"
+                      className="relative h-[72%] w-[90%] rounded-2xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]"
                       aria-hidden
                     >
                       {/* corners */}

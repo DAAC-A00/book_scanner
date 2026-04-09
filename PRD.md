@@ -21,18 +21,21 @@
 - **엔진 선택:** 브라우저가 지원하면 **Native `BarcodeDetector`**를 우선 사용하고, 미지원/초기화 실패 시 **Quagga2**로 폴백.
 - **세션 종료:** **「점검 중단」** 탭 시 **확인 팝업 없이** 바로 `endInventorySession()` — 카메라·인스턴스 정리. 이미 스캔분은 스캔 시점마다 저장되어 있으므로 **종료 시 일괄 저장 없음**.
 - **연속 스캔:** 세션 유지 중 별도 촬영 버튼 없이 디코딩 콜백으로 반복 인식.
-- **전면 뷰파인더 + ROI 가이드:** 화면 중앙 가이드 박스(90%)를 표시하고, Quagga ROI(중앙 90%)와 동기화.
+- **뷰파인더 + ROI 가이드:** 화면 중앙에 **가로 90% × 세로 72%** 가이드 박스를 표시하고, Quagga 폴백 시 비디오 프레임에서 **동일 비율로 중앙 크롭**한 뒤 JPEG로 `decodeSingle`에 넘김(가이드와 픽셀 ROI 일치).
+- **Quagga2 폴백 디코딩:** `inputStream.size` **1280**, `locator.patchSize` **`"large"`**, `locator.halfSample` **`false`**(작은 바코드에서 픽셀 뭉개짐 완화). 네이티브 `BarcodeDetector` 경로는 별도 튜닝 없음.
+- **카메라 트랙:** `getUserMedia` 직후 지원 기기에서 `applyConstraints`로 해상도·(가능 시) 디지털 줌·연속 초점을 시도하며, 실패 시에도 스트림은 유지.
 
 ### ② 검증·피드백·라이브 표시
-- **이중 검증:** `trim` 후 **`/^\d+$/`** + **EAN-13 체크섬** 통과 시만 처리.
-- **멀티 프레임 합의:** 유효 코드가 **2회 연속 동일**할 때만 확정 저장(현재 Native/Quagga 모두 2회).
+- **UI 게이트 (`Scanner.tsx`):** `trim` 후 **`/^\d{5,13}$/`** 인 값만 합의·저장 파이프라인으로 전달.
+- **스토어 (`appendDigitScanToActiveSession`):** `trim` 후 **`/^\d+$/`** 재검증. **동일 바코드**는 **약 2초** 안의 중복 스캔만 무시(다른 코드는 즉시 허용).
+- **멀티 프레임 합의:** 유효 코드가 **2회 연속 동일**할 때만 확정 저장(Native/Quagga 모두 2회).
 - **멀티 피드백 (성공 시):**
   - Haptic: `navigator.vibrate([100])`
   - Visual: 화면 테두리 **녹색 플래시** (`globals.css` `@keyframes`)
   - Sound: Web Audio **짧은 비프** (`useScanBeeps`, 세션 중 `prime()`)
   - UI: **토스트** `기록했어요: [숫자]` (일정 시간 후 자동 닫힘)
 - **실패 비프:** 비숫자 연속 디코딩 시 쿨다운 후 실패 톤.
-- **라이브 인지:** 스캔 중 상단 패널에 **「지금까지 점검」** 권수 + **「방금 인식」** 대형 숫자, 스캔마다 **글로우·스케일** 애니메이션(`scan-live-code-hit`). 하단에는 이번 세션 누적 줄 **읽기 전용** 표시.
+- **라이브 인지:** 스캔 중 상단 패널에 **「지금까지 점검」** 권수 + **「방금 인식」** 대형 숫자, 스캔마다 **글로우·스케일** 애니메이션(`scan-live-code-hit`). 하단에는 이번 세션 누적 줄 **읽기 전용** 표시, **`liveSessionText` 갱신 시 textarea를 최하단으로 자동 스크롤**.
 - **디버그 정보 접근:** 상단 우측 `i` 버튼을 눌렀을 때만 디버그 팝업(브라우저/OS/엔진)을 표시해 카메라 가시 영역을 확보.
 
 ### ③ 세션별 localStorage (Offline-First)
@@ -41,26 +44,28 @@
 - **Zustand 역할:** 실행 중 UI 메타(`activeSessionKey`, `liveSessionText`, `lastCapturedCode` 등)만 관리. 스캔 화면 노출은 페이지의 **`isScanMode`** 등으로 구분. **스캔 본문은 `persist` 미사용** — 원본은 항상 해당 세션 키의 `localStorage` 값.
 - **점검 중 표시:** 하단 누적 영역은 **`readOnly` textarea**로만 표시(직접 수정 불가). 수정은 **지난 점검 기록 → 상세**의 textarea에서 `writeSessionRaw`로 반영.
 
-### ④ 시작 전 · 이력 관리
+### ④ 시작 전 · 이력 · 내비게이션
 - **메인 정리:** 메인 화면 진입 시(표시 전) `removeSessionKeysWithZeroBarcodes()`로 **바코드 0건** 세션 키를 `localStorage`에서 제거.
 - **이전 점검 목록:** `listSessionStorageKeys()`로 접두사 일치 키를 나열(최신순), 항목 탭 시 상세에서 **textarea 조회·수정**(`writeSessionRaw`), **삭제**(확인 후). 목록 행에서는 **복사 버튼 없음**.
 - **클립보드:** **`Navigator.clipboard`** 복사는 **지난 점검 상세**에서만 제공. 점검 진행 중·목록 화면에서는 복사하지 않음.
 - **클라이언트 전용:** 목록/편집은 `typeof window` 이후·마운트 이후에 수행(SSR에서 `localStorage` 직접 접근하지 않음).
+- **첫 화면 뒤로가기:** 히스토리 루트에서 뒤로가기 시 **확인 대화상자 없이** 앱 이탈·종료 시퀀스(`scheduleLeaveHostedApp`) 실행.
 
-### ⑤ 개발·폴백
-- **데스크톱:** 터치·거친 포인터가 없으면 카메라 대신 **가상 스캔(13자리 숫자)** UI.
+### ⑤ 카메라 실패 시 (목업 패널)
+- **`getUserMedia`/엔진 실패** 등으로 스캔을 열 수 없을 때, 뷰파인더 영역에 **안내 문구 +「카메라 다시 연결하기」** 목업을 표시. (과거 문서에 있던 **데스크톱 가상 숫자 입력** 전용 UI는 현재 코드에 없음.)
 
 ## 4. 로드맵·비구현 (Gap / Future)
+- **EAN-13 등 체크섬 검증** — 미구현. 현재는 자릿수·숫자 패턴만 사용.
 - **클립보드 자동 복사**(스캔 직후 등) — 미구현. 현재는 상세 화면 **수동 복사**만.
 - **서버 동기화·보내기(CSV 등)** — 미구현.
-- **`date-fns`:** `package.json`에만 존재, 소스 미사용(향후 타임스탬프 표기·메타데이터용 후보).
+- **데스크톱·카메라 없는 환경용 가상 스캔 입력** — 미구현(후보).
 - **레거시:** 과거 Zustand `persist` 키(`inventory-scanner-scans` 등)는 현재 스캔 파이프라인과 **연동되지 않음**. 필요 시 별도 마이그레이션 스크립트 검토.
 
 ## 5. 기술 스택 (Tech Stack)
 - **Frontend:** Next.js **16** (App Router), React **19**, Tailwind CSS **4**
 - **PWA:** `@ducanh2912/next-pwa`(prod에서 SW 등록, dev 비활성)
 - **State:** Zustand **5** (런타임 상태; 스캔 본문 persist 미사용)
-- **Storage:** `localStorage` 세션 키 + 헬퍼(`readSessionRaw` / `writeSessionRaw` / `appendLine` 패턴)
+- **Storage:** `localStorage` 세션 키 + 헬퍼(`readSessionRaw` / `writeSessionRaw` / 줄 append 패턴)
 - **Scanner:** Native `BarcodeDetector` + `@ericblade/quagga2` 폴백
 
 ## 6. UI/UX 전략
@@ -68,6 +73,7 @@
 - **한 손 조작:** 하단 고정 **누적 표시(읽기 전용)·토스트**, 상단 **점검 중단**, 스캔 중 **라이브 인식 패널**.
 - **장갑·터치:** 큰 탭 타깃, **장서점검 시작 / 점검 중단** 문구로 의도 명확화.
 - **부가 링크:** 스캔 화면에는 외부 SNS 버튼 없음. 안내용 링크는 푸터 등 첫 화면 경로에 한함.
+- **헤더 정렬:** 점검 화면도 메인·목록과 동일한 `<main>` flex 패턴으로 `AppHeader` 상단 정렬을 맞춤.
 
 ## 7. 성공 지표 (Success Metrics)
 - 권당 **인식~로컬 저장 완료** 체감 **1초 미만**(네트워크 비의존).

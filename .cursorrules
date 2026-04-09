@@ -7,14 +7,15 @@
 3. Session Storage Key: 활성 세션 키는 **`book-scanner:session:` + 점검 시작 시각 ISO8601**. 한 세션의 모든 스캔은 **동일 키·단일 문자열 값**에 `\n`으로 누적한다.
 4. Pre-Session History: **지난 점검 기록**에서는 같은 접두사의 기존 키를 나열하고, 사용자가 **조회·textarea 수정·삭제·클립보드 복사**할 수 있어야 한다(전부 `localStorage`). **점검 진행 중 화면**에서는 누적 본문을 **읽기 전용**으로만 보여 주고, 복사는 하지 않는다.
 5. Haptic & Visual Feedback: 성공 시 **진동**, **테두리 녹색 플래시**, **토스트**; 스캐너 성공/실패 **짧은 비프**(Web Audio, `useScanBeeps`). 스캔 중에는 **방금 인식 값**을 크게 보여 주고 애니메이션으로 재인지를 돕는다.
-6. Validation: **`/^\d+$/`(trim 후 숫자만)** + **EAN-13 체크섬 검증**을 모두 통과한 값만 저장 파이프라인에 넣는다.
+6. Validation: **`Scanner.tsx`**에서 `trim` 후 **`/^\d{5,13}$/`** 만 합의·저장 후보로 보낸다. **`appendDigitScanToActiveSession`**에서는 **`/^\d+$/`** 로 한 번 더 검증하고, **동일 바코드는 ~2초 쿨다운**으로만 중복을 막는다. (EAN-13 체크섬은 미구현이면 로드맵으로 두고 문서·코드 불일치를 만들지 말 것.)
 7. PWA Integrity: iOS/Android 홈 화면 추가 시 네이티브에 가깝게 동작하도록 한다. **`localStorage`는 클라이언트 전용** — SSR에서 직접 읽지 말고 마운트 이후에 목록·편집을 수행한다.
 8. Main Hygiene: 메인 화면에 들어올 때(**`adminView === "main"`** 등) 건수·목록 반영 **직전**에, 바코드 줄이 **0건**인 세션 키는 `removeSessionKeysWithZeroBarcodes()`로 **삭제**한다.
 9. Session Exit: **점검 중단**은 확인 대화상자 없이 즉시 `endInventorySession()` 후 첫 화면으로 돌아간다.
+10. Main Back: 히스토리 **루트에서 뒤로가기** 시 **확인 없이** 앱 이탈(`scheduleLeaveHostedApp`)만 허용한다.
 
 # 💻 Tech Stack & Implementation
 1. Next.js (App Router): 서버 컴포넌트와 클라이언트 컴포넌트를 분리한다. 스토어·카메라·저장소 접근은 클라이언트 전용.
-2. Scanner Engine: **Native `BarcodeDetector` 우선 + Quagga2 폴백**. 세션 켜진 동안 **연속 스캔** 기본, 후면 카메라 우선. Quagga는 중앙 ROI 크롭(현재 90%)과 프레임 합의 검증(현재 2회 연속 일치)으로 오인식을 줄인다.
+2. Scanner Engine: **Native `BarcodeDetector` 우선 + Quagga2 폴백**. 세션 켜진 동안 **연속 스캔** 기본, 후면 카메라 우선. Quagga는 중앙 ROI **가로 90% × 세로 72%** 크롭, `decodeSingle`에서 **size 1280**·`halfSample: false`·`patchSize: "large"`, 프레임 합의(**2회 연속 일치**)로 오인식을 줄인다.
 3. State Management: `useScannerStore`는 **UI·세션 메타**(예: `activeSessionKey`, `liveSessionText`, `lastCapturedCode` 등)만 담는다. 스캔 화면 노출은 페이지에서 **`isScanMode`** 등으로 관리한다. **스캔 본문의 소스 오브 트루스는 `localStorage` 세션 키**이며, Zustand `persist`로 스캔 줄을 중복 저장하지 않는다(현재 구현 기준).
 4. Live vs edit: 점검 **진행 중** 하단 영역은 **읽기 전용**(스캔으로만 갱신). **지난 점검 상세**에서만 `writeSessionRaw`·textarea로 수정한다. `appendDigitScanToActiveSession`은 매번 **최신 `localStorage` 값 끝에 줄 append**.
 
