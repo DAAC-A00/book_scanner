@@ -559,6 +559,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
         {inSession && (
           <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
             <AppHeader
+              className="shrink-0"
               rightSlot={
                 <>
                   <button
@@ -625,14 +626,14 @@ export default function Scanner({ onExitSession }: ScannerProps) {
 
             <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {showCameraArea && (
-                <div className="relative z-20 min-h-[48dvh] w-full min-w-0 flex-1">
+                <div className="relative z-20 min-h-[48dvh] w-full min-w-0 flex-1 overflow-hidden">
                   <canvas ref={frameCanvasRef} className="hidden" aria-hidden />
                   <video
                     ref={videoRef}
                     autoPlay
                     playsInline
                     muted
-                    className="relative z-10 h-full w-full bg-zinc-900 object-cover"
+                    className="absolute inset-0 z-10 h-full w-full bg-zinc-900 object-cover"
                   />
 
                   {/* Quagga ROI(중앙 90%) 가이드라인 오버레이 */}
