@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -129,6 +130,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
   const lastCapturedCode = useScannerStore((s) => s.lastCapturedCode);
   const lastCaptureAt = useScannerStore((s) => s.lastCaptureAt);
 
+  const sessionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const frameCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
@@ -159,6 +161,13 @@ export default function Scanner({ onExitSession }: ScannerProps) {
 
   const inSession = activeSessionKey !== null;
   const totalBooks = countSessionLines(liveSessionText);
+
+  useLayoutEffect(() => {
+    if (!inSession) return;
+    const el = sessionTextareaRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [inSession, liveSessionText]);
 
   useEffect(() => {
     if (!inSession) return;
@@ -711,6 +720,7 @@ export default function Scanner({ onExitSession }: ScannerProps) {
             </p>
           </div>
           <textarea
+            ref={sessionTextareaRef}
             id="scan-session-textarea"
             value={liveSessionText}
             readOnly
