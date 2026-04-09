@@ -18,6 +18,7 @@ const VALID_BARCODE = /^\d{5,13}$/;
 /** 카메라가 같은 프레임에서 비숫자를 연속 디코딩할 때 비프 스팸 방지 */
 const INVALID_BEEP_COOLDOWN_MS = 900;
 const SCAN_INTERVAL_MS = 100;
+const SUCCESS_VIBRATION_PATTERN: number | number[] = [70];
 const UNSUPPORTED_MESSAGE =
   "이 브라우저는 네이티브 바코드 스캔을 지원하지 않습니다. Safari 17 이상이나 최신 Chrome을 사용해주세요.";
 const CAMERA_ERROR_TITLE = "카메라를 켤 수 없어요";
@@ -209,17 +210,26 @@ export default function Scanner({ onExitSession }: ScannerProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [debugInfoOpen]);
 
+  const vibrateOnSuccess = useCallback(() => {
+    if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") {
+      return;
+    }
+    try {
+      navigator.vibrate(SUCCESS_VIBRATION_PATTERN);
+    } catch {
+      /* 지원하지 않는 환경에서는 조용히 무시 */
+    }
+  }, []);
+
   const triggerFeedback = useCallback(
     (digits: string) => {
       playSuccess();
       setFlashKey(Date.now());
-      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate([100]);
-      }
+      vibrateOnSuccess();
       setToast(`기록했어요: ${digits}`);
       window.setTimeout(() => setToast(null), 1500);
     },
-    [playSuccess]
+    [playSuccess, vibrateOnSuccess]
   );
 
   const handleDecoded = useCallback(
