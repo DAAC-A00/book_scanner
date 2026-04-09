@@ -51,7 +51,7 @@ function screenFromState(state: unknown): Screen | null {
   return null;
 }
 
-/** popstate / confirm 직후 동기 history.back()은 무시되는 경우가 있어 비동기로 한 번 더 시도한다. */
+/** popstate 직후 동기 history.back()은 무시되는 경우가 있어 비동기로 한 번 더 시도한다. */
 function scheduleLeaveHostedApp(resetSkipFlag: () => void) {
   window.setTimeout(() => {
     window.history.back();
@@ -99,7 +99,8 @@ export default function Home() {
   const [selectedText, setSelectedText] = useState("");
   const [copyDone, setCopyDone] = useState(false);
   const timerRef = useRef<number | null>(null);
-  const skipNextPopConfirmRef = useRef(false);
+  /** `scheduleLeaveHostedApp`이 연쇄 popstate를 일으킬 때 재진입 방지 */
+  const skipLeaveEchoRef = useRef(false);
   const didSetupHistoryRef = useRef(false);
 
   const applyScreen = useCallback(
@@ -159,22 +160,15 @@ export default function Home() {
           (event.state as { root?: boolean }).root === true;
 
         if (isRootState) {
-          const shouldSkipConfirm = skipNextPopConfirmRef.current;
-          skipNextPopConfirmRef.current = false;
-          if (shouldSkipConfirm) return;
+          const skipEcho = skipLeaveEchoRef.current;
+          skipLeaveEchoRef.current = false;
+          if (skipEcho) return;
 
-          if (window.confirm("첫 화면을 나가 앱을 닫을까요?")) {
-            skipNextPopConfirmRef.current = true;
-            scheduleLeaveHostedApp(() => {
-              skipNextPopConfirmRef.current = false;
-            });
-            return;
-          }
-          window.history.pushState(
-            { screen: "main", guard: true },
-            "",
-            window.location.href
-          );
+          skipLeaveEchoRef.current = true;
+          scheduleLeaveHostedApp(() => {
+            skipLeaveEchoRef.current = false;
+          });
+          return;
         }
         return;
       }
